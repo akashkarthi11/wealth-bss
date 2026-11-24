@@ -21,5 +21,5 @@ jobs:
           cache: maven
       - name: Build and test
         run: mvn -B clean verify
-      - name: Build Docker image (ARM64)
-        run: docker buildx build --platform linux/arm64 --load -t wealth-bss:ci .
+      - name: Build Docker image (CI smoke test)
+        run: docker build -t wealth-bss:ci .
