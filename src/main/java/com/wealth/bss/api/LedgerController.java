@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
+@ConditionalOnProperty(name = "WEALTH_JDBC_URL")
 @RequestMapping("/api/ledger")
 public class LedgerController {
     private final JdbcTemplate jdbc;
