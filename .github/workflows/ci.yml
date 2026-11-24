@@ -1,4 +1,4 @@
-name: Build, test and publish AMD64 image
+name: Build, test, publish and deploy BSS
 
 on:
   pull_request:
@@ -39,4 +39,43 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}:development
+          tags: |
+            ghcr.io/${{ github.repository }}:development
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Oracle VM with health check and rollback
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          fingerprint: ${{ secrets.ORACLE_HOST_FINGERPRINT }}
+          envs: IMAGE
+          script: |
+            set -eu
+            PREVIOUS_IMAGE_ID=$(sudo docker inspect --format='{{.Image}}' wealth-bss 2>/dev/null || true)
+            sudo docker pull "$IMAGE"
+            sudo docker rm -f wealth-bss 2>/dev/null || true
+            sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 -p 127.0.0.1:8080:8080 -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" "$IMAGE"
+
+            for attempt in $(seq 1 20); do
+              if curl -fsS http://127.0.0.1:8080/actuator/health; then
+                echo "Deployment healthy: $IMAGE"
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "New deployment failed health check; rolling back"
+            sudo docker rm -f wealth-bss 2>/dev/null || true
+            if [ -n "$PREVIOUS_IMAGE_ID" ]; then
+              sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 -p 127.0.0.1:8080:8080 -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" "$PREVIOUS_IMAGE_ID"
+            fi
+            exit 1
