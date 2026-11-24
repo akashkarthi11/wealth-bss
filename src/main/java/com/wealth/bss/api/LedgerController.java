@@ -36,7 +36,6 @@ public class LedgerController {
         @DecimalMin(value = "0.00000001") @Digits(integer = 12, fraction = 8) BigDecimal amount,
         String accountId,
         @NotBlank @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}") String date,
-        @Size(max = 120) String externalRef
     ) {}
 
     @GetMapping
@@ -47,7 +46,7 @@ public class LedgerController {
         int safeLimit = Math.max(1, Math.min(limit, 500));
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT id, kind, category, description, amount, account_id, occurred_on,
-                   created_at, status, external_ref
+                   created_at, review_status
               FROM wealth_transactions
              WHERE user_id = ?
              ORDER BY occurred_on DESC, created_at DESC
@@ -75,29 +74,16 @@ public class LedgerController {
                     input.amount().compareTo(new BigDecimal("1000000000000")) > 0)
                 return ResponseEntity.badRequest().body(Map.of("error", "Invalid transaction amount"));
 
-            if (input.externalRef() != null && !input.externalRef().isBlank()) {
-                Integer duplicate = jdbc.queryForObject("""
-                    SELECT count(*) FROM wealth_transactions
-                     WHERE user_id = ? AND external_ref = ?
-                    """, Integer.class, user.get(), input.externalRef().trim());
-                if (duplicate != null && duplicate > 0)
-                    return ResponseEntity.status(409).body(Map.of("error", "This transaction reference is already recorded"));
-            }
-
             Map<String, Object> saved = jdbc.queryForMap("""
                 INSERT INTO wealth_transactions
-                    (user_id, kind, category, description, amount, account, account_id, occurred_on, external_ref)
-                VALUES (?, ?, ?, ?, ?, '', ?, ?, ?)
-                RETURNING id, kind, category, description, amount, account_id, occurred_on, status, external_ref
+                    (user_id, kind, category, description, amount, account, account_id, occurred_on)
+                VALUES (?, ?, ?, ?, ?, '', ?, ?)
+                RETURNING id, kind, category, description, amount, account_id, occurred_on
                 """, user.get(), input.kind(), input.category().trim(),
                 input.description() == null ? "" : input.description().trim(),
-                input.amount(), accountId, date,
-                input.externalRef() == null || input.externalRef().isBlank() ? null : input.externalRef().trim());
+                input.amount(), accountId, date);
             return ResponseEntity.status(201).body(Map.of("transaction", saved));
         } catch (java.time.DateTimeException | IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid transaction details"));
-        } catch (org.springframework.dao.DuplicateKeyException ex) {
-            return ResponseEntity.status(409).body(Map.of("error", "This transaction reference is already recorded"));
-        }
     }
 }
