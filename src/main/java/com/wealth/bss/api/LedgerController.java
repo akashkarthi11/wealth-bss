@@ -33,9 +33,9 @@ public class LedgerController {
         @NotBlank @Pattern(regexp = "income|expense|transfer|investment|liability") String kind,
         @NotBlank @Size(max = 60) String category,
         @Size(max = 180) String description,
-        @DecimalMin(value = "0.00000001") @Digits(integer = 12, fraction = 8) BigDecimal amount,
+        @DecimalMin(value = "0.01") @Digits(integer = 14, fraction = 2) BigDecimal amount,
         String accountId,
-        @NotBlank @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}") String date,
+        @NotBlank @Pattern(regexp = "\\d{4}-\\d{2}-\\d{2}") String date
     ) {}
 
     @GetMapping
