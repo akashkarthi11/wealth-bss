@@ -1,4 +1,4 @@
-name: Build, test and publish ARM64 image
+name: Build, test and publish AMD64 image
 
 on:
   pull_request:
@@ -22,9 +22,6 @@ jobs:
           cache: maven
       - name: Build and test
         run: mvn -B clean verify
-      - name: Set up QEMU
-        if: github.event_name == 'push'
-        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         if: github.event_name == 'push'
         uses: docker/setup-buildx-action@v3
@@ -35,11 +32,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish ARM64 image
+      - name: Build and publish AMD64 image
         if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ghcr.io/${{ github.repository }}:development
