@@ -32,12 +32,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish AMD64 image
+      - name: Build and publish Oracle Ampere ARM64 image
         if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/arm64
           push: true
           tags: |
             ghcr.io/${{ github.repository }}:development
