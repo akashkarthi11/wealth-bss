@@ -85,5 +85,6 @@ public class LedgerController {
             return ResponseEntity.status(201).body(Map.of("transaction", saved));
         } catch (java.time.DateTimeException | IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid transaction details"));
+        }
     }
 }
