@@ -1,0 +1,25 @@
+name: Build and test
+
+on:
+  pull_request:
+    branches: [main, development]
+  push:
+    branches: [development]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build and test
+        run: mvn -B clean verify
+      - name: Build Docker image (ARM64)
+        run: docker buildx build --platform linux/arm64 --load -t wealth-bss:ci .
