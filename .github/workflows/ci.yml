@@ -32,12 +32,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish Oracle Ampere ARM64 image
+      - name: Build and publish AMD64 image
         if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ghcr.io/${{ github.repository }}:development
@@ -48,6 +48,17 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/development'
     runs-on: ubuntu-latest
     steps:
+      - name: Verify configured SSH host fingerprint
+        env:
+          CONFIGURED_FINGERPRINT: ${{ secrets.ORACLE_HOST_FINGERPRINT }}
+        run: |
+          EXPECTED_FINGERPRINT='SHA256:uNZ64FyNe2TcCck7WwE+CxomnX9zOlLiswNG7edfTro'
+          if [ "$CONFIGURED_FINGERPRINT" = "$EXPECTED_FINGERPRINT" ]; then
+            echo "SSH fingerprint secret exactly matches the verified ED25519 host key."
+          else
+            echo "::error::ORACLE_HOST_FINGERPRINT does not exactly match the verified ED25519 host key."
+            exit 1
+          fi
       - name: Deploy to Oracle VM with health check and rollback
         uses: appleboy/ssh-action@v1.2.2
         env:
