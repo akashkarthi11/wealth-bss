@@ -60,3 +60,12 @@ Target: migrate the existing `wealth` backend into the single Spring Boot applic
 - [x] Initial authentication controller and scrypt compatibility tests compile and pass in CI (live DB/session integration still pending).
 - [ ] API-by-API migration and parity tests.
 - [ ] Frontend cutover (explicitly out of scope until backend parity is proven).
+
+
+## Service boundary (2026-11-25)
+
+- BFF public compatibility base: `/wealth/api/v1` in `wealth-bff`.
+- BSS internal API base: `/wealth-service/api/v1` in `wealth-bss`.
+- BFF forwards method, suffix, query string, body, cookies and authorization headers to BSS; BSS retains ownership of business logic and database access.
+- Existing BSS endpoints are mounted under the internal base: `/auth`, `/clear-session`, `/accounts`, `/ledger`.
+- GrowX orchestration has not yet been imported: no GrowX repository/source was found in the connected GitHub repositories. Do not treat the existing Wealth stock-advisor debate as GrowX until its source is identified.
