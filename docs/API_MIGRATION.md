@@ -18,7 +18,7 @@ Target: migrate the existing `wealth` backend into the single Spring Boot applic
 | Area | Existing source API | BSS status |
 |---|---|---|
 | Health | `/api/health` | Not migrated (Actuator health exists; source API contract still needs porting) |
-| Authentication / sessions | `/api/auth`, `/api/clear-session` | Initial parity implemented: GET current user; POST login/register/logout/reset; compatible scrypt hashes and `wealth_session` HMAC cookie; session-version revocation; password policy and rate limits. Needs live DB/cookie integration tests and `/api/clear-session` route |
+| Authentication / sessions | `/api/auth`, `/api/clear-session` | Initial parity implemented: GET current user; POST login/register/logout/reset; compatible scrypt hashes and `wealth_session` HMAC cookie; session-version revocation; password policy and rate limits. Needs live DB/cookie integration tests and live database/cookie integration tests |
 | Accounts | `/api/accounts` | Partial: authenticated account list only; account creation and FD terms update missing |
 | Ledger | `/api/ledger` | Partial: basic list/create; cursor contract, reward enrichment, external references and delete semantics missing |
 | Dashboard | `/api/dashboard` | Not migrated |
