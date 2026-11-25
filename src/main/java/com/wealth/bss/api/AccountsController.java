@@ -14,7 +14,7 @@ import java.util.Map;
 
 @RestController
 @ConditionalOnProperty(name = "WEALTH_JDBC_URL")
-@RequestMapping("/api/accounts")
+@RequestMapping("/wealth-service/api/v1/accounts")
 public class AccountsController {
     private final JdbcTemplate jdbc;
     private final WealthSessionService sessions;
