@@ -2,6 +2,8 @@ package com.wealth.bss.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import org.postgresql.util.PGobject;
 import com.wealth.bss.security.WealthAuthRateLimiter;
 import com.wealth.bss.security.WealthPasswordService;
 import com.wealth.bss.security.WealthSessionService;
@@ -158,7 +160,10 @@ public class AuthController {
         else {
             try {
                 List<Map<String, Object>> menus = jdbc.queryForList("SELECT menus FROM wealth_role_menus WHERE role = 'user'");
-                user.put("menus", menus.isEmpty() ? null : menus.get(0).get("menus"));
+                Object raw = menus.isEmpty() ? null : menus.get(0).get("menus");
+                if (raw instanceof PGobject pg) raw = pg.getValue();
+                if (raw instanceof String json) raw = mapper.readValue(json, new TypeReference<List<String>>() {});
+                user.put("menus", raw);
             } catch (Exception ignored) { user.put("menus", null); }
         }
         return user;
