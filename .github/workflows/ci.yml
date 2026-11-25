@@ -76,15 +76,17 @@ jobs:
             sudo docker rm -f wealth-bss 2>/dev/null || true
             sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 -p 127.0.0.1:8080:8080 -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" "$IMAGE"
 
-            for attempt in $(seq 1 20); do
-              if curl -fsS http://127.0.0.1:8080/actuator/health; then
+            for attempt in $(seq 1 90); do
+              if curl --connect-timeout 3 --max-time 5 -fsS http://127.0.0.1:8080/actuator/health; then
                 echo "Deployment healthy: $IMAGE"
                 exit 0
               fi
               sleep 2
             done
 
-            echo "New deployment failed health check; rolling back"
+            echo "New deployment failed health check after 180 seconds; recent container logs:"
+            sudo docker logs --tail 120 wealth-bss || true
+            echo "Rolling back to previous image"
             sudo docker rm -f wealth-bss 2>/dev/null || true
             if [ -n "$PREVIOUS_IMAGE_ID" ]; then
               sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 -p 127.0.0.1:8080:8080 -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" "$PREVIOUS_IMAGE_ID"
