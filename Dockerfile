@@ -1,4 +1,7 @@
 FROM maven:3.9-eclipse-temurin-21 AS build
+ARG COMMON_CACHE_BUST
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch development https://github.com/akashkarthi11/wealth-common.git /wealth-common && mvn -B -f /wealth-common/pom.xml install -DskipTests
 WORKDIR /workspace
 COPY pom.xml .
 COPY src ./src
