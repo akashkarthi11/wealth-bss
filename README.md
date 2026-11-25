@@ -26,3 +26,11 @@ Do not commit secrets, database URLs, private keys, tokens, or personal financia
 - Internal API base path: `/wealth-service/api/v1`.
 - Frontend traffic must enter through the BFF at `/wealth/api/v1`; do not expose BSS directly to browsers.
 - BSS owns business rules, persistence, integrations, orchestration and job execution.
+
+## Oracle VM deploy secrets (`development` branch only)
+
+The deploy job (`.github/workflows/ci.yml`) requires these repo secrets to be set, or it fails fast:
+`ORACLE_HOST`, `ORACLE_USER`, `ORACLE_SSH_KEY`, `ORACLE_HOST_FINGERPRINT`, `WEALTH_JDBC_URL`, `REDIS_URL`,
+`WEALTH_SESSION_SECRET`, `WEALTH_ACCESS_KEY`. The deployed container only receives `WEALTH_JDBC_URL` and
+`REDIS_URL` (no separate DB username/password), so `WEALTH_JDBC_URL` must embed credentials as query params:
+`postgresql://<host>/<database>?sslmode=require&user=<db-username>&password=<db-password>`.
