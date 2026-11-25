@@ -19,3 +19,10 @@ Spring Boot backend services for Wealth integrations and internal capabilities.
 The `development` branch is the only branch intended for automatic Oracle Cloud development deployment. Production deployment from `main` is not configured.
 
 Do not commit secrets, database URLs, private keys, tokens, or personal financial data.
+
+
+## Internal API routing
+
+- Internal API base path: `/wealth-service/api/v1`.
+- Frontend traffic must enter through the BFF at `/wealth/api/v1`; do not expose BSS directly to browsers.
+- BSS owns business rules, persistence, integrations, orchestration and job execution.
