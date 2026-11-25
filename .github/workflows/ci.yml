@@ -72,6 +72,8 @@ jobs:
         uses: appleboy/ssh-action@v1.2.2
         env:
           IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SPRING_PROFILES_ACTIVE: dev
           WEALTH_JDBC_URL: ${{ secrets.WEALTH_JDBC_URL }}
           REDIS_URL: ${{ secrets.REDIS_URL }}
@@ -82,13 +84,14 @@ jobs:
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
           fingerprint: ${{ secrets.ORACLE_HOST_FINGERPRINT }}
-          envs: IMAGE,SPRING_PROFILES_ACTIVE,WEALTH_JDBC_URL,REDIS_URL,WEALTH_SESSION_SECRET,WEALTH_ACCESS_KEY
+          envs: IMAGE,REGISTRY_USER,REGISTRY_TOKEN,SPRING_PROFILES_ACTIVE,WEALTH_JDBC_URL,REDIS_URL,WEALTH_SESSION_SECRET,WEALTH_ACCESS_KEY
           script: |
             set -eu
             test -n "$WEALTH_JDBC_URL" || { echo "Missing WEALTH_JDBC_URL secret"; exit 1; }
             test -n "$REDIS_URL" || { echo "Missing REDIS_URL secret"; exit 1; }
             test -n "$WEALTH_SESSION_SECRET" || { echo "Missing WEALTH_SESSION_SECRET secret"; exit 1; }
             test -n "$WEALTH_ACCESS_KEY" || { echo "Missing WEALTH_ACCESS_KEY secret"; exit 1; }
+            echo "$REGISTRY_TOKEN" | sudo docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
             sudo docker pull "$IMAGE"
             sudo docker rm -f wealth-bss 2>/dev/null || true
             sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 \
