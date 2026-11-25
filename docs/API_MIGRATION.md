@@ -18,7 +18,7 @@ Target: migrate the existing `wealth` backend into the single Spring Boot applic
 | Area | Existing source API | BSS status |
 |---|---|---|
 | Health | `/api/health` | Not migrated (Actuator health exists; source API contract still needs porting) |
-| Authentication / sessions | `/api/auth`, `/api/clear-session` | Partial foundation: signed `wealth_session` cookie validation exists; login/logout/me/password flows not ported |
+| Authentication / sessions | `/api/auth`, `/api/clear-session` | Initial parity implemented: GET current user; POST login/register/logout/reset; compatible scrypt hashes and `wealth_session` HMAC cookie; session-version revocation; password policy and rate limits. Needs live DB/cookie integration tests and `/api/clear-session` route |
 | Accounts | `/api/accounts` | Partial: authenticated account list only; account creation and FD terms update missing |
 | Ledger | `/api/ledger` | Partial: basic list/create; cursor contract, reward enrichment, external references and delete semantics missing |
 | Dashboard | `/api/dashboard` | Not migrated |
@@ -57,5 +57,5 @@ Target: migrate the existing `wealth` backend into the single Spring Boot applic
 
 - [x] Spring Boot BSS builds, tests, publishes AMD64 image and deploys to the Oracle VM.
 - [x] Actuator health endpoint returns `UP` after deployment.
-- [ ] API-by-API migration and parity tests.
+- [x] Initial authentication controller and scrypt compatibility tests compile and pass in CI (live DB/session integration still pending).\n- [ ] API-by-API migration and parity tests.
 - [ ] Frontend cutover (explicitly out of scope until backend parity is proven).
