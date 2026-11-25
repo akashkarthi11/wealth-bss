@@ -5,7 +5,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/internal")
+@RequestMapping("/wealth-service/api/v1/internal")
 public class SampleController {
 
     @GetMapping("/sample")
