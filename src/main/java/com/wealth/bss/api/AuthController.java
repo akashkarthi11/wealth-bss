@@ -52,7 +52,11 @@ public class AuthController {
     @GetMapping
     public ResponseEntity<?> current(HttpServletRequest request) {
         var userId = sessions.authenticatedUser(request);
-        if (userId.isEmpty()) return ResponseEntity.ok(Map.of("user", (Object) nullSafeNull()));
+        if (userId.isEmpty()) {
+            Map<String, Object> anonymous = new LinkedHashMap<>();
+            anonymous.put("user", null);
+            return ResponseEntity.ok(anonymous);
+        }
         return ResponseEntity.ok(Map.of("user", userPayload(userId.get())));
     }
 
@@ -189,5 +193,4 @@ public class AuthController {
         response.addHeader("Set-Cookie", "wealth_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
     }
 
-    private static Object nullSafeNull() { return null; }
 }
