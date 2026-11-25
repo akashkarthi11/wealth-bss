@@ -11,6 +11,13 @@
   <properties>
     <java.version>21</java.version>
   </properties>
+  <repositories>
+    <repository>
+      <id>github</id>
+      <name>GitHub Packages - wealth-common</name>
+      <url>https://maven.pkg.github.com/akashkarthi11/wealth-common</url>
+    </repository>
+  </repositories>
   <dependencies>
     <dependency><groupId>com.wealth</groupId><artifactId>wealth-common</artifactId><version>0.1.0-SNAPSHOT</version></dependency>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
