@@ -11,14 +11,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import javax.sql.DataSource;
 
 @Configuration
-@ConditionalOnProperty(name = "WEALTH_JDBC_URL")
+@ConditionalOnProperty(name = "wealth.jdbc.url")
 public class WealthJdbcConfiguration {
     @Bean
     public DataSource wealthDataSource(
-            @Value("${WEALTH_JDBC_URL}") String configuredJdbcUrl,
-            @Value("${WEALTH_DB_USERNAME:}") String username,
-            @Value("${WEALTH_DB_PASSWORD:}") String password,
-            @Value("${WEALTH_DB_POOL_SIZE:5}") int poolSize) {
+            @Value("${wealth.jdbc.url}") String configuredJdbcUrl,
+            @Value("${wealth.jdbc.username:}") String username,
+            @Value("${wealth.jdbc.password:}") String password,
+            @Value("${wealth.jdbc.pool-size:5}") int poolSize) {
         String jdbcUrl = configuredJdbcUrl.startsWith("postgresql://")
                 ? "jdbc:" + configuredJdbcUrl
                 : configuredJdbcUrl;
