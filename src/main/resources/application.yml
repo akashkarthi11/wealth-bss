@@ -33,6 +33,41 @@ wealth:
     secret: ${WEALTH_SESSION_SECRET:}
   access:
     key: ${WEALTH_ACCESS_KEY:}
+  nexus-cache:
+    namespace: ${WEALTH_NEXUS_CACHE_NAMESPACE:local}
+    ttl-seconds: ${WEALTH_NEXUS_CACHE_TTL_SECONDS:90000}
+
+# Embedded growx-common closure (Interceptor/CommonRepository/feign clients) config. wealth has no real
+# Customers-service or multi-schema tenancy, so these are placeholders that let the beans start, not live
+# integrations - see docs/business/index.md Architecture Gap.
+default:
+  schema: ${DEFAULT_SCHEMA:public}
+  isProd: ${DEFAULT_IS_PROD:false}
+karthi:
+  appmaster-schema: ${KARTHI_APPMASTER_SCHEMA:public}
+  customers-service:
+    url: ${KARTHI_CUSTOMERS_SERVICE_URL:http://localhost:9999}
+  nexusService:
+    name: ${KARTHI_NEXUS_SERVICE_NAME:wealth-nexus-placeholder}
+    url: ${KARTHI_NEXUS_SERVICE_URL:http://localhost:9999}
+  security-headers:
+    content-security-policy: "${KARTHI_SECURITY_CSP:default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'}"
+resttemplate:
+  connect:
+    timeout: ${RESTTEMPLATE_CONNECT_TIMEOUT:25000}
+  read:
+    timeout: ${RESTTEMPLATE_READ_TIMEOUT:25000}
+cors:
+  mapping: ${CORS_MAPPING:/**}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,PATCH,DELETE,OPTIONS}
+  allowed-headers: ${CORS_ALLOWED_HEADERS:*}
+  allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
+
+jwt:
+  private-key-path: ${JWT_PRIVATE_KEY_PATH:}
+  issuer: ${JWT_ISSUER:wealth-bss}
+  access-token-lifetime-seconds: ${JWT_ACCESS_TOKEN_LIFETIME_SECONDS:3600}
 
 ---
 spring:

@@ -69,3 +69,17 @@ Target: migrate the existing `wealth` backend into the single Spring Boot applic
 - BFF forwards method, suffix, query string, body, cookies and authorization headers to BSS; BSS retains ownership of business logic and database access.
 - Existing BSS endpoints are mounted under the internal base: `/auth`, `/clear-session`, `/accounts`, `/ledger`.
 - GrowX orchestration has not yet been imported: no GrowX repository/source was found in the connected GitHub repositories. Do not treat the existing Wealth stock-advisor debate as GrowX until its source is identified.
+
+
+## Plan and store decisions (2026-11-25)
+
+- The full plan (phases, rules, risks, open decisions) is in the `wealth` repo: `docs/plans/2026-11-25-springboot-migration-plan.md`.
+  This tracker remains the route-by-route status list.
+- Cutover is per route at the edge: the old app's `vercel.json` rewrites one migrated `/api/<route>` at a time to the BFF.
+  The migration sequence above stays the same. Step 8 becomes per route, and a data move (Phase 7) follows it.
+- A new Neon database (env prefix `DB_URL_`, Neon Auth and Realtime turned on) and a new `REDIS_URL` were added to Vercel project
+  `portfolio` (wealth-ui). They are the **Phase 7 target**. Until then, the BSS uses the **same** database and Redis as the Node app, so
+  rows and cache invalidation stay in one place. BSS development and parity tests use a `dev` Neon branch of the new project.
+- `WEALTH_JDBC_URL` must be in JDBC form (`jdbc:postgresql://<host>/<db>?sslmode=require`, plus `&prepareThreshold=0` on the `-pooler`
+  host). The deploy step passes neither `WEALTH_DB_USERNAME` nor `WEALTH_DB_PASSWORD`, so the credentials go in the URL or the step must
+  pass them.

@@ -1,0 +1,9 @@
+target/
+# stale pre-wealth-common copy, superseded by src/main/java/com/wealth/bss/common - could not be deleted
+# from this session (destructive-command policy); kept out of git until it is removed on disk
+src/main/java/com/growx/
+.classpath
+.project
+.settings/
+.factorypath
+*.log
