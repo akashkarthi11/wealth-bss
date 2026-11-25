@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/clear-session")
+@RequestMapping("/wealth-service/api/v1/clear-session")
 public class ClearSessionController {
     private final ObjectProvider<JdbcTemplate> jdbcProvider;
     private final ObjectProvider<WealthSessionService> sessionsProvider;
