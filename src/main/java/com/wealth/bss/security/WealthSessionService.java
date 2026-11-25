@@ -30,6 +30,13 @@ public class WealthSessionService {
         this.secret = secret;
     }
 
+    public String issueToken(UUID userId, long sessionVersion) throws Exception {
+        if (secret == null || secret.trim().length() < 32) throw new IllegalStateException("WEALTH_SESSION_SECRET must be at least 32 characters");
+        String payload = Base64.getUrlEncoder().withoutPadding().encodeToString(mapper.writeValueAsBytes(
+            mapper.createObjectNode().put("uid", userId.toString()).put("exp", System.currentTimeMillis() + 7L * 86400000L).put("sv", sessionVersion)));
+        return payload + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(hmac(payload));
+    }
+
     public Optional<UUID> authenticatedUser(HttpServletRequest request) {
         if (secret == null || secret.trim().length() < 32) return Optional.empty();
         try {
