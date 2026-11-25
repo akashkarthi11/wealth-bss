@@ -83,3 +83,51 @@ Target: migrate the existing `wealth` backend into the single Spring Boot applic
 - `WEALTH_JDBC_URL` must be in JDBC form (`jdbc:postgresql://<host>/<db>?sslmode=require`, plus `&prepareThreshold=0` on the `-pooler`
   host). The deploy step passes neither `WEALTH_DB_USERNAME` nor `WEALTH_DB_PASSWORD`, so the credentials go in the URL or the step must
   pass them.
+
+
+## Reset to configuration only (2026-11-25)
+
+On the owner's request, all controllers and implementation code were removed from `wealth-bss` and `wealth-bff`. The coverage table and
+progress list above describe code that no longer exists here; it remains in git history.
+
+- **What remains:** the application class, `config/WealthJdbcConfiguration`, `common/config/DataSourceConfig`, `application.yml`,
+  `pom.xml`, Dockerfile and CI. Health is Actuator `/actuator/health`, which the wealth-ui connectivity check calls.
+- **Removed:** the auth, accounts, ledger, clear-session and sample controllers; the security services (scrypt, session, rate limiter)
+  and their test; the Feign clients and their mTLS configs; the Nexus cache; assembler, DAO, interceptor, constants, DTOs, entities, helpers.
+- **Unchanged:** `wealth-common`.
+- **Still on disk:** the untracked, gitignored stale copy in `src/main/java/com/growx/`. Deleting it was blocked by the tool policy.
+  A backup is at `C:\Users\THINKPAD\wealth-backups\2026-11-25\`.
+
+
+## Nexus cache and request interceptor (2026-11-25)
+
+Logic taken from `tsp-v3` (`growx-common-lib` Interceptor, `growx-nexus-service` request-header cache), with Wealth's own entity and DTO only.
+
+- **Structure (same layers as growx-accounts-service / growx-nexus-service / growx-common-lib):**
+
+  | Layer | wealth-common | wealth-bss |
+  |---|---|---|
+  | Gate | `interceptor/Interceptor` | |
+  | Context store | `utils/generic/RequestHeaderUtil` (request metadata only; `getThreadLocalDto()` reads Redis on every call, no local copy), `model/dto/ThreadLocalDto` (userId, role, sessionVersion; no email) | |
+  | Nexus seam | `client/NexusServiceClient` (the Feign client's role) | `serviceinterface/IfRequestContextService`, `serviceimplement/RequestContextServiceImple` |
+  | Nexus cache | | `nexus/service/IfRequestHeaderService`, `nexus/serviceimple/RequestHeaderServiceImple` (Redis, namespaced key, TTL) |
+  | Model | | `common/model/entity/GenericEntity`, `WealthUserEntity`, `common/model/dto/PaginationDto`, `common/model/dao/IfWealthUserDao` |
+  | DAO and SQL | | `daoimplement/WealthUserDaoImple`, `query/QueryConstants`, `constants/WealthServiceConstants` |
+
+  Logging uses `KarthiLogger`, no `{}` placeholders. Not ported: tenant and schema lookup, openapi/job scope, Kafka service URLs, URI
+  permission checks. The BFF has no `NexusServiceClient`, so it only checks the JWT; BSS also checks the user. No Nexus controller or
+  contract: exposing cache get/set over HTTP would let any caller read or write sessions; the cache is called in-process.
+- **Lean base types (deliberate difference):** `GenericEntity` has only `tableName()`/`primaryKey()`, and `PaginationDto.id` is a String.
+  GrowX's `GenericRepository` and `GenericEntity` assume integer ids and audit columns (`crtd_by`, tenant) that `wealth_users` does not
+  have, so `WealthUserDaoImple` uses `JdbcTemplate` directly, as in the DAO template.
+- **Defaults changed:** `wealth.nexus-cache.namespace` `local` to `wealth:nexus` (the Redis is shared), TTL 90000 to 300 s (a role or
+  session change must not stay cached for a day).
+- **Public (no JWT):** `/actuator`, `/error`, Swagger paths, and under `/wealth/api/v1` or `/wealth-service/api/v1`: `/auth`, `/clear-session`,
+  `/health`, `/lend-view`. Every other route needs a valid Bearer JWT whose subject is a `wealth_users.id`.
+- **Not done:** nothing issues a JWT yet (login is rebuilt in Phase 0), and per-route role/menu checks (`_roles.js`) are not ported.
+- **Verified:** wealth-common 15 tests, wealth-bss 10 tests; the packaged BSS was run against the new test database and Redis:
+  no token and a garbage token return 401, a valid token for a user in the database passes, the cache is written with 3 fields and
+  re-used, a down Redis falls back to the database, preflight and `/actuator/health` pass.
+- **Known blockers:** `application.yml` has an uncommitted edit by someone else that left `security-headers:` under `default:` instead
+  of `karthi:`, so the app does not start (`karthi.security-headers.content-security-policy` unresolved). With an empty `REDIS_URL` or
+  `WEALTH_JDBC_URL` the app also does not start (empty value counts as set).

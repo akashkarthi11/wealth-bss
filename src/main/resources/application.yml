@@ -22,6 +22,9 @@ management:
     health:
       probes:
         enabled: true
+      # "never" by default - a health breakdown (db/redis up/down, driver names) is useful for local dev
+      # dashboards but not something to expose publicly without thought. Override per-environment.
+      show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:never}
 
 wealth:
   jdbc:
@@ -34,8 +37,8 @@ wealth:
   access:
     key: ${WEALTH_ACCESS_KEY:}
   nexus-cache:
-    namespace: ${WEALTH_NEXUS_CACHE_NAMESPACE:local}
-    ttl-seconds: ${WEALTH_NEXUS_CACHE_TTL_SECONDS:90000}
+    namespace: ${WEALTH_NEXUS_CACHE_NAMESPACE:wealth:nexus}
+    ttl-seconds: ${WEALTH_NEXUS_CACHE_TTL_SECONDS:300}
 
 # Embedded growx-common closure (Interceptor/CommonRepository/feign clients) config. wealth has no real
 # Customers-service or multi-schema tenancy, so these are placeholders that let the beans start, not live
