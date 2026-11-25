@@ -37,7 +37,9 @@ public class WealthSessionService {
         return payload + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(hmac(payload));
     }
 
-    public Optional<UUID> authenticatedUser(HttpServletRequest request) {
+    public record SessionClaims(UUID userId, long sessionVersion) {}
+
+    public Optional<SessionClaims> sessionClaims(HttpServletRequest request) {
         if (secret == null || secret.trim().length() < 32) return Optional.empty();
         try {
             String cookieHeader = request.getHeader("Cookie");
@@ -57,20 +59,28 @@ public class WealthSessionService {
             byte[] supplied = Base64.getUrlDecoder().decode(pieces[1]);
             if (!MessageDigest.isEqual(expected, supplied)) return Optional.empty();
 
-            byte[] payload = Base64.getUrlDecoder().decode(pieces[0]);
-            JsonNode claims = mapper.readTree(payload);
+            JsonNode claims = mapper.readTree(Base64.getUrlDecoder().decode(pieces[0]));
             UUID userId = UUID.fromString(claims.path("uid").asText());
             long expiresAt = claims.path("exp").asLong(0);
             long sessionVersion = claims.path("sv").asLong(1);
             if (expiresAt <= System.currentTimeMillis()) return Optional.empty();
+            return Optional.of(new SessionClaims(userId, sessionVersion));
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
+    }
 
+    public Optional<UUID> authenticatedUser(HttpServletRequest request) {
+        Optional<SessionClaims> claims = sessionClaims(request);
+        if (claims.isEmpty()) return Optional.empty();
+        try {
             Integer currentVersion = jdbc.queryForObject(
                 "SELECT session_version FROM wealth_users WHERE id = ?",
-                Integer.class, userId);
-            if (currentVersion == null || currentVersion.longValue() != sessionVersion) {
+                Integer.class, claims.get().userId());
+            if (currentVersion == null || currentVersion.longValue() != claims.get().sessionVersion()) {
                 return Optional.empty();
             }
-            return Optional.of(userId);
+            return Optional.of(claims.get().userId());
         } catch (Exception ignored) {
             return Optional.empty();
         }
