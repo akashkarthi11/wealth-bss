@@ -34,3 +34,4 @@ The deploy job (`.github/workflows/ci.yml`) requires these repo secrets to be se
 `WEALTH_SESSION_SECRET`, `WEALTH_ACCESS_KEY`. The deployed container only receives `WEALTH_JDBC_URL` and
 `REDIS_URL` (no separate DB username/password), so `WEALTH_JDBC_URL` must embed credentials as query params:
 `postgresql://<host>/<database>?sslmode=require&user=<db-username>&password=<db-password>`.
+
