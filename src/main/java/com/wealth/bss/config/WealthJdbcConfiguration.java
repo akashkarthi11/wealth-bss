@@ -18,7 +18,8 @@ public class WealthJdbcConfiguration {
             @Value("${wealth.jdbc.url}") String configuredJdbcUrl,
             @Value("${wealth.jdbc.username:}") String username,
             @Value("${wealth.jdbc.password:}") String password,
-            @Value("${wealth.jdbc.pool-size:5}") int poolSize) {
+            @Value("${wealth.jdbc.pool-size:5}") int poolSize,
+            @Value("${wealth.jdbc.connection-timeout-ms:20000}") long connectionTimeoutMs) {
         String jdbcUrl = configuredJdbcUrl.startsWith("postgresql://")
                 ? "jdbc:" + configuredJdbcUrl
                 : configuredJdbcUrl;
@@ -29,7 +30,9 @@ public class WealthJdbcConfiguration {
         if (!password.isBlank()) config.setPassword(password);
         config.setMaximumPoolSize(Math.max(1, Math.min(poolSize, 10)));
         config.setMinimumIdle(0);
-        config.setConnectionTimeout(5000);
+        // Neon's serverless Postgres auto-suspends when idle; waking it up on the first connection
+        // after a suspend can take longer than a typical same-region timeout, especially cross-cloud.
+        config.setConnectionTimeout(connectionTimeoutMs);
         config.setInitializationFailTimeout(-1);
         config.setPoolName("wealth-bss-postgres");
         return new HikariDataSource(config);
