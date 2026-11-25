@@ -57,5 +57,6 @@ Target: migrate the existing `wealth` backend into the single Spring Boot applic
 
 - [x] Spring Boot BSS builds, tests, publishes AMD64 image and deploys to the Oracle VM.
 - [x] Actuator health endpoint returns `UP` after deployment.
-- [x] Initial authentication controller and scrypt compatibility tests compile and pass in CI (live DB/session integration still pending).\n- [ ] API-by-API migration and parity tests.
+- [x] Initial authentication controller and scrypt compatibility tests compile and pass in CI (live DB/session integration still pending).
+- [ ] API-by-API migration and parity tests.
 - [ ] Frontend cutover (explicitly out of scope until backend parity is proven).
