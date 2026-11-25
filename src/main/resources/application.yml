@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: wealth-bss
+  sql:
+    init:
+      mode: never
+  data:
+    redis:
+      url: ${REDIS_URL:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:1s}
+      timeout: ${REDIS_TIMEOUT:1s}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+wealth:
+  jdbc:
+    url: ${WEALTH_JDBC_URL:}
+    username: ${WEALTH_DB_USERNAME:}
+    password: ${WEALTH_DB_PASSWORD:}
+    pool-size: ${WEALTH_DB_POOL_SIZE:5}
+  session:
+    secret: ${WEALTH_SESSION_SECRET:}
+  access:
+    key: ${WEALTH_ACCESS_KEY:}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+wealth:
+  environment: development
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+wealth:
+  environment: production
