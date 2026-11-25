@@ -15,10 +15,14 @@ import javax.sql.DataSource;
 public class WealthJdbcConfiguration {
     @Bean
     public DataSource wealthDataSource(
-            @Value("${WEALTH_JDBC_URL}") String jdbcUrl,
+            @Value("${WEALTH_JDBC_URL}") String configuredJdbcUrl,
             @Value("${WEALTH_DB_USERNAME:}") String username,
             @Value("${WEALTH_DB_PASSWORD:}") String password,
             @Value("${WEALTH_DB_POOL_SIZE:5}") int poolSize) {
+        String jdbcUrl = configuredJdbcUrl.startsWith("postgresql://")
+                ? "jdbc:" + configuredJdbcUrl
+                : configuredJdbcUrl;
+
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(jdbcUrl);
         if (!username.isBlank()) config.setUsername(username);
