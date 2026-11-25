@@ -26,7 +26,7 @@ import java.util.UUID;
 
 @RestController
 @ConditionalOnProperty(name = "WEALTH_JDBC_URL")
-@RequestMapping("/api/auth")
+@RequestMapping("/wealth-service/api/v1/auth")
 public class AuthController {
     private static final Duration WINDOW = Duration.ofMinutes(15);
     private static final long EMAIL_LIMIT = 5;
