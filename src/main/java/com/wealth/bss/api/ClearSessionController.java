@@ -1,9 +1,9 @@
 package com.wealth.bss.api;
 
 import com.wealth.bss.security.WealthSessionService;
+import org.springframework.beans.factory.ObjectProvider;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -12,15 +12,15 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Map;
 
 @RestController
-@ConditionalOnProperty(name = "WEALTH_JDBC_URL")
 @RequestMapping("/api/clear-session")
 public class ClearSessionController {
-    private final JdbcTemplate jdbc;
-    private final WealthSessionService sessions;
+    private final ObjectProvider<JdbcTemplate> jdbcProvider;
+    private final ObjectProvider<WealthSessionService> sessionsProvider;
 
-    public ClearSessionController(JdbcTemplate jdbc, WealthSessionService sessions) {
-        this.jdbc = jdbc;
-        this.sessions = sessions;
+    public ClearSessionController(ObjectProvider<JdbcTemplate> jdbcProvider,
+            ObjectProvider<WealthSessionService> sessionsProvider) {
+        this.jdbcProvider = jdbcProvider;
+        this.sessionsProvider = sessionsProvider;
     }
 
     @GetMapping
@@ -35,8 +35,10 @@ public class ClearSessionController {
     @PostMapping
     public ResponseEntity<?> clearEverywhere(HttpServletRequest request, HttpServletResponse response) {
         boolean everywhere = false;
-        var claims = sessions.sessionClaims(request);
-        if (claims.isPresent()) {
+        JdbcTemplate jdbc = jdbcProvider.getIfAvailable();
+        WealthSessionService sessions = sessionsProvider.getIfAvailable();
+        var claims = sessions == null ? java.util.Optional.<WealthSessionService.SessionClaims>empty() : sessions.sessionClaims(request);
+        if (jdbc != null && claims.isPresent()) {
             try {
                 Integer changed = jdbc.queryForObject("""
                     WITH actor AS (SELECT set_config('wealth.actor', 'owner', true))
