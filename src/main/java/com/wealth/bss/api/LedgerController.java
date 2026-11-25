@@ -21,7 +21,7 @@ import java.util.UUID;
 
 @RestController
 @ConditionalOnProperty(name = "WEALTH_JDBC_URL")
-@RequestMapping("/api/ledger")
+@RequestMapping("/wealth-service/api/v1/ledger")
 public class LedgerController {
     private final JdbcTemplate jdbc;
     private final WealthSessionService sessions;
