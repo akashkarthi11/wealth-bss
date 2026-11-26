@@ -69,6 +69,7 @@ jobs:
             run_bss() {
               sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 \
                 -e SPRING_PROFILES_ACTIVE="$SPRING_PROFILES_ACTIVE" \
+                -e SERVER_PORT=8080 \
                 -p 127.0.0.1:8081:8080 \
                 -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" \
                 -e WEALTH_JDBC_URL="$WEALTH_JDBC_URL" \
