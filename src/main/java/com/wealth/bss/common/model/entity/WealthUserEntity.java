@@ -1,6 +1,5 @@
 package com.wealth.bss.common.model.entity;
 
-import java.sql.Timestamp;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -15,7 +14,6 @@ public class WealthUserEntity extends GenericEntity {
 	private String email;
 	private String role;
 	private Integer sessionVersion;
-	private Timestamp createdAt;
 
 	@Override
 	public String tableName() {

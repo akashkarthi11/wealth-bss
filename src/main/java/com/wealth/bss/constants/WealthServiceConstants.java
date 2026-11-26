@@ -25,6 +25,27 @@ public final class WealthServiceConstants {
 	public static final String LOGOUT = "/logout";
 	public static final String PASSWORD_RESET = "/password/reset";
 
+	// Values of wealth.actor (audit log and the external-balance guard, migrations 0008 and 0012).
+	public static final String ACTOR_OWNER = "owner";
+	public static final String ACTOR_AGENT = "agent";
+	public static final String ACTOR_CRON = "cron";
+
+	public static final int BALANCE_HISTORY_DEFAULT = 30;
+
+	// Admin module paths.
+	public static final String ADMIN_BASE = "/wealth-service/api/v1/admin";
+	public static final String ROLES_LIST = "/roles/list";
+	public static final String ROLES_UPDATE_MENUS = "/roles/update-menus";
+	public static final String RECORDS_LIST = "/records/list";
+
+	// The menus a role can be given: key, label, group. Same list and order as the old app (api/_roles.js).
+	public static final String[][] MENUS = { { "overview", "Overview", "Money" }, { "banks", "Banks", "Money" },
+			{ "investments", "Investments", "Money" }, { "interest", "Interest", "Money" }, { "rewards", "Rewards", "Money" },
+			{ "lending", "People", "Money" }, { "transactions", "Transactions", "Activity" }, { "alerts", "Alerts", "Activity" },
+			{ "subscriptions", "Subscriptions", "Activity" }, { "upload", "Upload", "Activity" },
+			{ "stock-advisor", "Stock Advisor", "Tools" }, { "offers", "Account offers", "Money" } };
+
+	public static final String ROLE_USER = "user";
 	public static final String ROLE_ADMIN = "admin";
 	public static final String SESSION_VERSION_CLAIM = "sv";
 

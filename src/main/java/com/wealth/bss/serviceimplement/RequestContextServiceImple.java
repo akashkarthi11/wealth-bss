@@ -11,8 +11,11 @@ import com.wealth.bss.common.model.entity.WealthUserEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.bss.nexus.service.IfRequestHeaderService;
 import com.wealth.bss.serviceinterface.IfRequestContextService;
+import com.wealth.common.generic.BaseError;
+import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
 import com.wealth.common.model.dto.ThreadLocalDto;
+import com.wealth.common.utils.generic.RequestHeaderUtil;
 
 // Cache first, database second; a Redis failure falls back to the database, which is the source of truth.
 @Service
@@ -67,6 +70,14 @@ public class RequestContextServiceImple implements IfRequestContextService {
 			requestHeaderService.removeCacheData(WealthServiceConstants.REQUEST_CONTEXT_KEY_PREFIX + id);
 		} catch (RuntimeException e) {
 			LOGGER.warn("Request context cache evict failed: " + e.getClass().getSimpleName());
+		}
+	}
+
+	@Override
+	public void requireAdmin() {
+		ThreadLocalDto caller = RequestHeaderUtil.getThreadLocalDto();
+		if (caller == null || !WealthServiceConstants.ROLE_ADMIN.equals(caller.getRole())) {
+			throw new KarthiException(BaseError.ADMIN_ONLY_ACTION);
 		}
 	}
 

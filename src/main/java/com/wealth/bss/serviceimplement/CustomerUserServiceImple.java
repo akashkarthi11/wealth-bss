@@ -138,10 +138,7 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 	public void resetPassword(PasswordResetRequestDto request) {
 		String methodName = "resetPassword";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
-		ThreadLocalDto caller = RequestHeaderUtil.getThreadLocalDto();
-		if (caller == null || !WealthServiceConstants.ROLE_ADMIN.equals(caller.getRole())) {
-			throw new KarthiException(BaseError.ADMIN_ONLY_ACTION);
-		}
+		requestContextService.requireAdmin();
 		String email = requireEmail(request == null ? null : request.getEmail());
 		String newPassword = requirePassword(request.getNewPassword());
 		limitAuthPerIp();
