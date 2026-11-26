@@ -50,7 +50,8 @@ public class AngelOneClient {
 	}
 
 	// One holding as Angel One reports it.
-	public record Holding(String symbol, String isin, String exchange, String token, BigDecimal quantity, BigDecimal averagePrice, BigDecimal lastPrice) {
+	public record Holding(String symbol, String isin, String exchange, String token, BigDecimal quantity, BigDecimal averagePrice, BigDecimal lastPrice, String product,
+			BigDecimal t1Quantity, BigDecimal collateralQuantity, BigDecimal haircut, BigDecimal close, BigDecimal profitAndLoss, BigDecimal pnlPercent) {
 	}
 
 	// The login values kept together as one encrypted block, by these names.
@@ -119,7 +120,8 @@ public class AngelOneClient {
 					continue;
 				}
 				result.add(new Holding(symbol, item.path("isin").asText(""), item.path("exchange").asText(""), item.path("symboltoken").asText(""),
-						decimal(item, "quantity"), decimal(item, "averageprice"), decimal(item, "ltp")));
+						decimal(item, "quantity"), decimal(item, "averageprice"), decimal(item, "ltp"), item.path("product").asText("").trim(), optional(item, "t1quantity"),
+						optional(item, "collateralquantity"), optional(item, "haircut"), optional(item, "close"), optional(item, "profitandloss"), optional(item, "pnlpercentage")));
 			}
 			return result;
 		} catch (IOException e) {
@@ -156,6 +158,19 @@ public class AngelOneClient {
 	private static String shorten(String message) {
 		String clean = message.replaceAll("\\p{Cntrl}", " ").trim();
 		return clean.length() > 120 ? clean.substring(0, 120) : clean;
+	}
+
+	// A number Angel One may leave out: null when it is missing, empty or not a number.
+	private static BigDecimal optional(JsonNode item, String field) {
+		JsonNode value = item.path(field);
+		if (value.isMissingNode() || value.isNull() || value.asText("").isBlank()) {
+			return null;
+		}
+		try {
+			return new BigDecimal(value.asText().trim());
+		} catch (NumberFormatException e) {
+			return null;
+		}
 	}
 
 	private static BigDecimal decimal(JsonNode item, String field) {

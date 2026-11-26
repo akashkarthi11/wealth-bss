@@ -102,7 +102,8 @@ class BrokerSyncServiceImpleTest {
 	}
 
 	private Holding holding(String symbol, String exchange, String quantity, String average, String last) {
-		return new Holding(symbol, "INE", exchange, "1", new BigDecimal(quantity), new BigDecimal(average), new BigDecimal(last));
+		return new Holding(symbol, "INE" + symbol, exchange, "1", new BigDecimal(quantity), new BigDecimal(average), new BigDecimal(last), "DELIVERY", new BigDecimal("2"), BigDecimal.ZERO,
+				new BigDecimal("0.2"), new BigDecimal("2400"), new BigDecimal("-5"), new BigDecimal("-0.2"));
 	}
 
 	@Test
@@ -153,6 +154,13 @@ class BrokerSyncServiceImpleTest {
 		assertEquals("share", rows.get(0).getInstrument().getUnit());
 		assertEquals(0, new BigDecimal("24505.50").compareTo(rows.get(0).getInvestedValue()));
 		assertEquals(0, new BigDecimal("2512.3").compareTo(rows.get(0).getLastPrice()));
+		assertEquals("INERELIANCE-EQ", rows.get(0).getInstrument().getIsin());
+		assertEquals("NSE", rows.get(0).getInstrument().getExchange());
+		assertEquals("DELIVERY", rows.get(0).getProduct());
+		assertEquals(0, new BigDecimal("2").compareTo(rows.get(0).getT1Quantity()));
+		assertEquals(0, new BigDecimal("2400").compareTo(rows.get(0).getBrokerClose()));
+		assertEquals(0, new BigDecimal("-5").compareTo(rows.get(0).getBrokerPnl()));
+		assertEquals(0, new BigDecimal("-0.2").compareTo(rows.get(0).getBrokerPnlPercent()));
 		assertEquals("TCS", rows.get(1).getInstrument().getSymbol());
 		assertEquals("TCS.BO", rows.get(1).getInstrument().getPriceSourceSymbol());
 

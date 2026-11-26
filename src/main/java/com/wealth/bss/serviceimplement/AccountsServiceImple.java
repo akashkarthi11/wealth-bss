@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import com.wealth.bss.common.model.dao.IfWealthAccountBalanceDao;
 import com.wealth.bss.common.model.dao.IfWealthAccountDao;
 import com.wealth.bss.common.model.dao.IfWealthAccountSplitDao;
+import com.wealth.bss.common.model.dao.IfWealthInvestmentDao;
 import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthAccountBalanceEntity;
 import com.wealth.bss.common.model.entity.WealthAccountEntity;
@@ -49,12 +50,14 @@ public class AccountsServiceImple implements IfAccountsService {
 	private final IfWealthAccountDao wealthAccountDao;
 	private final IfWealthAccountBalanceDao wealthAccountBalanceDao;
 	private final IfWealthAccountSplitDao wealthAccountSplitDao;
+	private final IfWealthInvestmentDao wealthInvestmentDao;
 
 	public AccountsServiceImple(IfWealthAccountDao wealthAccountDao, IfWealthAccountBalanceDao wealthAccountBalanceDao,
-			IfWealthAccountSplitDao wealthAccountSplitDao) {
+			IfWealthAccountSplitDao wealthAccountSplitDao, IfWealthInvestmentDao wealthInvestmentDao) {
 		this.wealthAccountDao = wealthAccountDao;
 		this.wealthAccountBalanceDao = wealthAccountBalanceDao;
 		this.wealthAccountSplitDao = wealthAccountSplitDao;
+		this.wealthInvestmentDao = wealthInvestmentDao;
 	}
 
 	@Override
@@ -67,6 +70,7 @@ public class AccountsServiceImple implements IfAccountsService {
 		for (WealthAccountBalanceEntity balance : wealthAccountBalanceDao.findLatestByUser(paginationDto)) {
 			latest.put(balance.getAccountId(), balance);
 		}
+		Map<String, WealthAccountBalanceEntity> held = holdingValues(paginationDto);
 		Map<String, BankDto> banks = new LinkedHashMap<>();
 		AccountTotalsDto totals = emptyTotals();
 		for (WealthAccountEntity entity : wealthAccountDao.findByUser(paginationDto)) {
@@ -74,7 +78,7 @@ public class AccountsServiceImple implements IfAccountsService {
 				continue;
 			}
 			WealthAccountSubtypeEntity subtype = subtypes.get(entity.getSubtypeCode());
-			AccountDto account = toAccount(entity, subtype, latest.get(entity.getId()));
+			AccountDto account = toAccount(entity, subtype, valued(subtype, held.get(entity.getId()), latest.get(entity.getId())));
 			BankDto bank = banks.computeIfAbsent(entity.getBankName(), name -> newBank(name));
 			bank.getAccounts().add(account);
 			add(bank.getTotals(), account);
@@ -107,7 +111,8 @@ public class AccountsServiceImple implements IfAccountsService {
 		paginationDto.setPageSize(WealthServiceConstants.BALANCE_HISTORY_ROWS);
 		List<WealthAccountBalanceEntity> history = wealthAccountBalanceDao.findHistory(paginationDto);
 		AccountDetailDto detail = new AccountDetailDto();
-		detail.setAccount(toAccount(entity, subtypesByCode().get(entity.getSubtypeCode()), history.isEmpty() ? null : history.get(0)));
+		WealthAccountSubtypeEntity subtype = subtypesByCode().get(entity.getSubtypeCode());
+		detail.setAccount(toAccount(entity, subtype, valued(subtype, holdingValues(paginationDto).get(entity.getId()), history.isEmpty() ? null : history.get(0))));
 		detail.setBalances(GenericAssembler.toDTOList(history, AccountBalanceDto.class));
 		detail.setSplits(buildSplits(paginationDto));
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | balances=" + history.size());
@@ -159,6 +164,21 @@ public class AccountsServiceImple implements IfAccountsService {
 		return byCode;
 	}
 
+	// The market value of the holdings (quantity x latest price) by account; shown as an estimate because prices move.
+	private Map<String, WealthAccountBalanceEntity> holdingValues(PaginationDto paginationDto) {
+		Map<String, WealthAccountBalanceEntity> held = new HashMap<>();
+		for (WealthAccountBalanceEntity value : wealthInvestmentDao.findHoldingValuesByUser(paginationDto)) {
+			value.setStatus(WealthServiceConstants.BALANCE_ESTIMATED);
+			held.put(value.getAccountId(), value);
+		}
+		return held;
+	}
+
+	// An account valued by holdings (demat) shows its holdings value when it has priced holdings; every other account shows its latest balance.
+	private WealthAccountBalanceEntity valued(WealthAccountSubtypeEntity subtype, WealthAccountBalanceEntity held, WealthAccountBalanceEntity balance) {
+		return subtype != null && WealthServiceConstants.VALUATION_HOLDINGS.equals(subtype.getValuation()) && held != null ? held : balance;
+	}
+
 	private AccountDto toAccount(WealthAccountEntity entity, WealthAccountSubtypeEntity subtype, WealthAccountBalanceEntity balance) {
 		AccountDto dto = GenericAssembler.toDTO(entity, AccountDto.class);
 		dto.setCategory(subtype == null ? null : subtype.getCategory());
@@ -187,7 +207,7 @@ public class AccountsServiceImple implements IfAccountsService {
 		return totals;
 	}
 
-	// Rupee balances only; a balance waiting for reconciliation is left out; holdings are added by the investments module.
+	// Rupee balances only; a balance waiting for reconciliation is left out; a holdings account counts at the market value of its holdings.
 	private void add(AccountTotalsDto totals, AccountDto account) {
 		if (account.getBalance() == null || !WealthServiceConstants.CURRENCY_INR.equals(account.getCurrency())
 				|| WealthServiceConstants.BALANCE_PENDING_RECONCILIATION.equals(account.getBalanceStatus())) {

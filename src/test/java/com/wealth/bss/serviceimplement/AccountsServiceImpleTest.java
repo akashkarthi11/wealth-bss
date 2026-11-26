@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import com.wealth.bss.common.model.dao.IfWealthAccountBalanceDao;
 import com.wealth.bss.common.model.dao.IfWealthAccountDao;
 import com.wealth.bss.common.model.dao.IfWealthAccountSplitDao;
+import com.wealth.bss.common.model.dao.IfWealthInvestmentDao;
 import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthAccountBalanceEntity;
 import com.wealth.bss.common.model.entity.WealthAccountEntity;
@@ -45,6 +46,7 @@ class AccountsServiceImpleTest {
 	private IfWealthAccountDao accounts;
 	private IfWealthAccountBalanceDao balances;
 	private IfWealthAccountSplitDao splits;
+	private IfWealthInvestmentDao investments;
 	private AccountsServiceImple service;
 
 	@BeforeEach
@@ -52,7 +54,8 @@ class AccountsServiceImpleTest {
 		accounts = mock(IfWealthAccountDao.class);
 		balances = mock(IfWealthAccountBalanceDao.class);
 		splits = mock(IfWealthAccountSplitDao.class);
-		service = new AccountsServiceImple(accounts, balances, splits);
+		investments = mock(IfWealthInvestmentDao.class);
+		service = new AccountsServiceImple(accounts, balances, splits, investments);
 		RequestHeaderUtil.setUserId(USER_ID);
 		when(accounts.findAllSubtypes()).thenReturn(List.of(subtype("savings", "CASA"), subtype("fd", "INVESTMENT"), subtype("card", "LIABILITY")));
 	}
@@ -87,6 +90,57 @@ class AccountsServiceImpleTest {
 		e.setStatus(status);
 		e.setAsOf(Timestamp.valueOf("2026-11-20 10:00:00"));
 		return e;
+	}
+
+	private WealthAccountSubtypeEntity dematSubtype() {
+		WealthAccountSubtypeEntity e = subtype("demat_equity", "INVESTMENT");
+		e.setValuation("holdings");
+		return e;
+	}
+
+	@Test
+	void aHoldingsAccountCountsAtTheMarketValueOfItsHoldingsAsAnEstimate() {
+		when(accounts.findAllSubtypes()).thenReturn(List.of(subtype("savings", "CASA"), dematSubtype()));
+		when(accounts.findByUser(any())).thenReturn(List.of(account("a1", "Atom", "savings", "INR", "active"), account("d1", "Angel One", "demat_equity", "INR", "active")));
+		when(balances.findLatestByUser(any())).thenReturn(List.of(balance("a1", "1000", "verified")));
+		when(investments.findHoldingValuesByUser(any())).thenReturn(List.of(balance("d1", "239339.88", "ignored")));
+
+		AccountsOverviewDto overview = service.overview();
+
+		var demat = overview.getBanks().get(1).getAccounts().get(0);
+		assertEquals(0, new BigDecimal("239339.88").compareTo(demat.getBalance()));
+		assertEquals("estimated", demat.getBalanceStatus());
+		assertEquals(0, new BigDecimal("239339.88").compareTo(overview.getTotals().getInvestment()));
+		assertEquals(0, new BigDecimal("240339.88").compareTo(overview.getTotals().getNetWorth()));
+	}
+
+	@Test
+	void aHoldingsAccountWithoutPricedHoldingsKeepsItsBalanceAndOtherAccountsIgnoreHoldingValues() {
+		when(accounts.findAllSubtypes()).thenReturn(List.of(subtype("savings", "CASA"), dematSubtype()));
+		when(accounts.findByUser(any())).thenReturn(List.of(account("a1", "Atom", "savings", "INR", "active"), account("d1", "Angel One", "demat_equity", "INR", "active")));
+		when(balances.findLatestByUser(any())).thenReturn(List.of(balance("a1", "1000", "verified"), balance("d1", "500", "reported")));
+		when(investments.findHoldingValuesByUser(any())).thenReturn(List.of(balance("a1", "999999", "x")));
+
+		AccountsOverviewDto overview = service.overview();
+
+		assertEquals(0, new BigDecimal("500").compareTo(overview.getTotals().getInvestment()));
+		assertEquals(0, new BigDecimal("1000").compareTo(overview.getTotals().getCasa()));
+	}
+
+	@Test
+	void theAccountDetailOfAHoldingsAccountShowsTheHoldingsValue() {
+		String id = "2a7014a8-9cf0-4d39-bed2-c83a83eddf0d";
+		when(accounts.findAllSubtypes()).thenReturn(List.of(dematSubtype()));
+		when(accounts.findById(any())).thenReturn(account(id, "Angel One", "demat_equity", "INR", "active"));
+		when(balances.findHistory(any())).thenReturn(List.of());
+		when(investments.findHoldingValuesByUser(any())).thenReturn(List.of(balance(id, "1234.50", "x")));
+		IdRequestDto request = new IdRequestDto();
+		request.setId(id);
+
+		AccountDetailDto detail = service.detail(request);
+
+		assertEquals(0, new BigDecimal("1234.50").compareTo(detail.getAccount().getBalance()));
+		assertEquals("estimated", detail.getAccount().getBalanceStatus());
 	}
 
 	@Test

@@ -69,6 +69,10 @@ public final class WealthServiceConstants {
 	public static final String ACCOUNTS_DETAIL = "/detail";
 	public static final String ACCOUNTS_SUBTYPES = "/subtypes";
 	public static final String ACCOUNTS_SPLITS_LIST = "/splits/list";
+	public static final String INVESTMENTS_BASE = "/wealth-service/api/v1/investments";
+	public static final String INVESTMENTS_LIST = "/list";
+	public static final int MONEY_SCALE = 2;
+	public static final int PRICE_SCALE = 4;
 
 	public static final String ACCOUNT_ACTIVE = "active";
 	public static final String CURRENCY_INR = "INR";
@@ -77,6 +81,7 @@ public final class WealthServiceConstants {
 	public static final String CATEGORY_LIABILITY = "LIABILITY";
 	public static final String BALANCE_PENDING_RECONCILIATION = "pending_reconciliation";
 	public static final String BALANCE_ESTIMATED = "estimated";
+	public static final String VALUATION_HOLDINGS = "holdings";
 	public static final int BALANCE_HISTORY_ROWS = 30;
 
 

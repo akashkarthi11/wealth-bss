@@ -180,13 +180,31 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 		share.setUnit("share");
 		share.setPriceSource("yahoo");
 		share.setPriceSourceSymbol(symbol + ("BSE".equalsIgnoreCase(item.exchange()) ? ".BO" : ".NS"));
+		share.setIsin(blankToNull(item.isin()));
+		share.setExchange(blankToNull(item.exchange()));
 		WealthHoldingEntity holding = new WealthHoldingEntity();
 		holding.setInstrument(share);
 		holding.setQuantity(item.quantity());
 		holding.setInvestedValue(item.quantity().multiply(item.averagePrice()).max(BigDecimal.ZERO));
 		holding.setAsOf(now);
 		holding.setLastPrice(item.lastPrice());
+		holding.setProduct(blankToNull(item.product()));
+		holding.setT1Quantity(nonNegative(item.t1Quantity()));
+		holding.setCollateralQuantity(nonNegative(item.collateralQuantity()));
+		holding.setHaircut(item.haircut());
+		holding.setBrokerClose(nonNegative(item.close()));
+		holding.setBrokerPnl(item.profitAndLoss());
+		holding.setBrokerPnlPercent(item.pnlPercent());
 		return holding;
+	}
+
+	private static String blankToNull(String text) {
+		return text == null || text.isBlank() ? null : text.trim();
+	}
+
+	// The table refuses a negative quantity or close, so a negative value from the broker is left empty.
+	private static BigDecimal nonNegative(BigDecimal value) {
+		return value == null || value.signum() < 0 ? null : value;
 	}
 
 	private WealthConnectionEntity noted(WealthConnectionEntity row, String note, String actor) {

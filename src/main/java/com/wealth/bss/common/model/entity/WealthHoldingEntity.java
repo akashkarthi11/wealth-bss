@@ -20,6 +20,14 @@ public class WealthHoldingEntity extends GenericEntity {
 	private BigDecimal investedValue;
 	private Timestamp asOf;
 	private String status;
+	// What the broker reports besides the quantity: product type, T1 and pledged quantities, haircut, previous close, its own profit or loss.
+	private String product;
+	private BigDecimal t1Quantity;
+	private BigDecimal collateralQuantity;
+	private BigDecimal haircut;
+	private BigDecimal brokerClose;
+	private BigDecimal brokerPnl;
+	private BigDecimal brokerPnlPercent;
 	private WealthInstrumentEntity instrument;
 	private BigDecimal lastPrice;
 

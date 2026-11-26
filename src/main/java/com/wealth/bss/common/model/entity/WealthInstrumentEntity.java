@@ -18,6 +18,8 @@ public class WealthInstrumentEntity extends GenericEntity {
 	private String unit;
 	private String priceSource;
 	private String priceSourceSymbol;
+	private String isin;
+	private String exchange;
 
 	@Override
 	public String tableName() {

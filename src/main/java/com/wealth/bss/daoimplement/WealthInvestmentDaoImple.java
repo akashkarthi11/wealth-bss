@@ -3,11 +3,15 @@ package com.wealth.bss.daoimplement;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.wealth.bss.common.model.dao.IfWealthInvestmentDao;
+import com.wealth.bss.common.model.dto.PaginationDto;
+import com.wealth.bss.common.model.entity.WealthAccountBalanceEntity;
+import com.wealth.bss.common.model.entity.WealthHoldingDetailEntity;
 import com.wealth.bss.common.model.entity.WealthHoldingEntity;
 import com.wealth.bss.common.model.entity.WealthInstrumentEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
@@ -24,6 +28,26 @@ public class WealthInvestmentDaoImple extends WealthBaseDaoImple implements IfWe
 	}
 
 	@Override
+	public List<WealthHoldingDetailEntity> findHoldingDetailsByUser(PaginationDto paginationDto) {
+		String methodName = "findHoldingDetailsByUser";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		List<WealthHoldingDetailEntity> rows = jdbcTemplate.query(QueryConstants.FIND_HOLDING_DETAILS_BY_USER, new BeanPropertyRowMapper<>(WealthHoldingDetailEntity.class),
+				paginationDto.getUserId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
+		return rows;
+	}
+
+	@Override
+	public List<WealthAccountBalanceEntity> findHoldingValuesByUser(PaginationDto paginationDto) {
+		String methodName = "findHoldingValuesByUser";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		List<WealthAccountBalanceEntity> rows = jdbcTemplate.query(QueryConstants.FIND_HOLDING_VALUES_BY_USER, new BeanPropertyRowMapper<>(WealthAccountBalanceEntity.class),
+				paginationDto.getUserId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
+		return rows;
+	}
+
+	@Override
 	@Transactional
 	public int[] saveBrokerHoldings(String actor, String accountId, String priceSource, List<WealthHoldingEntity> holdings) {
 		String methodName = "saveBrokerHoldings";
@@ -35,8 +59,9 @@ public class WealthInvestmentDaoImple extends WealthBaseDaoImple implements IfWe
 		for (WealthHoldingEntity holding : holdings) {
 			WealthInstrumentEntity share = holding.getInstrument();
 			String instrumentId = jdbcTemplate.queryForObject(QueryConstants.UPSERT_INSTRUMENT, String.class, share.getAssetClass(), share.getSymbol(), share.getName(),
-					share.getCurrency(), share.getUnit(), share.getPriceSource(), share.getPriceSourceSymbol());
-			jdbcTemplate.update(QueryConstants.UPSERT_HOLDING, accountId, instrumentId, holding.getQuantity(), holding.getInvestedValue(), holding.getAsOf());
+					share.getCurrency(), share.getUnit(), share.getPriceSource(), share.getPriceSourceSymbol(), share.getIsin(), share.getExchange());
+			jdbcTemplate.update(QueryConstants.UPSERT_HOLDING, accountId, instrumentId, holding.getQuantity(), holding.getInvestedValue(), holding.getAsOf(), holding.getProduct(), holding.getT1Quantity(),
+					holding.getCollateralQuantity(), holding.getHaircut(), holding.getBrokerClose(), holding.getBrokerPnl(), holding.getBrokerPnlPercent());
 			if (holding.getLastPrice() != null && holding.getLastPrice().signum() > 0) {
 				jdbcTemplate.update(QueryConstants.INSERT_INSTRUMENT_PRICE, instrumentId, holding.getAsOf(), priceSource, holding.getLastPrice());
 			}

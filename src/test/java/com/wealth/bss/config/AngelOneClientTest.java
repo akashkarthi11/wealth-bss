@@ -2,6 +2,7 @@ package com.wealth.bss.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -88,7 +89,7 @@ class AngelOneClientTest {
 	@Test
 	void holdingsAreReadWithTheAccessTokenAndMappedWithNumbers() {
 		holdingsAnswer = "{\"status\":true,\"data\":{\"holdings\":[{\"tradingsymbol\":\"RELIANCE-EQ\",\"exchange\":\"NSE\",\"isin\":\"INE002A01018\",\"symboltoken\":\"2885\","
-				+ "\"quantity\":10,\"averageprice\":2450.55,\"ltp\":2512.3},{\"tradingsymbol\":\"\",\"quantity\":1},{\"tradingsymbol\":\"TCS-EQ\",\"quantity\":\"3\","
+				+ "\"quantity\":10,\"averageprice\":2450.55,\"ltp\":2512.3,\"product\":\"DELIVERY\",\"t1quantity\":2,\"collateralquantity\":0,\"haircut\":0.2,\"close\":2500,\"profitandloss\":-12.5,\"pnlpercentage\":\"-0.05\"},{\"tradingsymbol\":\"\",\"quantity\":1},{\"tradingsymbol\":\"TCS-EQ\",\"quantity\":\"3\","
 				+ "\"averageprice\":\"3500\",\"ltp\":null}]}}";
 
 		List<Holding> holdings = client.holdings(base, credentials);
@@ -99,6 +100,12 @@ class AngelOneClientTest {
 		assertEquals(0, new java.math.BigDecimal("10").compareTo(holdings.get(0).quantity()));
 		assertEquals(0, new java.math.BigDecimal("2450.55").compareTo(holdings.get(0).averagePrice()));
 		assertEquals("INE002A01018", holdings.get(0).isin());
+		assertEquals("DELIVERY", holdings.get(0).product());
+		assertEquals(0, new java.math.BigDecimal("2").compareTo(holdings.get(0).t1Quantity()));
+		assertEquals(0, new java.math.BigDecimal("-12.5").compareTo(holdings.get(0).profitAndLoss()));
+		assertEquals(0, new java.math.BigDecimal("-0.05").compareTo(holdings.get(0).pnlPercent()));
+		assertNull(holdings.get(1).t1Quantity(), "a field Angel One leaves out stays empty");
+		assertNull(holdings.get(1).profitAndLoss());
 		assertEquals(0, java.math.BigDecimal.ZERO.compareTo(holdings.get(1).lastPrice()), "a missing price is zero");
 	}
 
