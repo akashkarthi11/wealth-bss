@@ -1,0 +1,91 @@
+name: Deploy BSS to Oracle VM
+
+on:
+  push:
+    branches: [development]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy-bss
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify configured SSH host fingerprint
+        env:
+          CONFIGURED_FINGERPRINT: ${{ secrets.ORACLE_HOST_FINGERPRINT }}
+        run: |
+          EXPECTED_FINGERPRINT='SHA256:D4qwc2obm5GrMxueJhxpoE0fmDmdYDUnXPwAzmpispQ'
+          if [ "$CONFIGURED_FINGERPRINT" = "$EXPECTED_FINGERPRINT" ]; then
+            echo "SSH fingerprint secret matches the verified ECDSA host key."
+          else
+            echo "::error::ORACLE_HOST_FINGERPRINT does not match the verified ECDSA host key."
+            exit 1
+          fi
+      - name: Deploy BSS (waits for the image that CI publishes)
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SPRING_PROFILES_ACTIVE: dev
+          WEALTH_JDBC_URL: ${{ secrets.WEALTH_JDBC_URL }}
+          WEALTH_DB_USERNAME: ${{ secrets.WEALTH_DB_USERNAME }}
+          WEALTH_DB_PASSWORD: ${{ secrets.WEALTH_DB_PASSWORD }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          WEALTH_SESSION_SECRET: ${{ secrets.WEALTH_SESSION_SECRET }}
+          WEALTH_ACCESS_KEY: ${{ secrets.WEALTH_ACCESS_KEY }}
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          fingerprint: ${{ secrets.ORACLE_HOST_FINGERPRINT }}
+          command_timeout: 25m
+          envs: IMAGE,REGISTRY_USER,REGISTRY_TOKEN,SPRING_PROFILES_ACTIVE,WEALTH_JDBC_URL,WEALTH_DB_USERNAME,WEALTH_DB_PASSWORD,REDIS_URL,WEALTH_SESSION_SECRET,WEALTH_ACCESS_KEY
+          script: |
+            set -u
+            test -n "$WEALTH_JDBC_URL" || { echo "Missing WEALTH_JDBC_URL secret"; exit 1; }
+            test -n "$WEALTH_DB_USERNAME" || { echo "Missing WEALTH_DB_USERNAME secret"; exit 1; }
+            test -n "$WEALTH_DB_PASSWORD" || { echo "Missing WEALTH_DB_PASSWORD secret"; exit 1; }
+            test -n "$REDIS_URL" || { echo "Missing REDIS_URL secret"; exit 1; }
+            test -n "$WEALTH_SESSION_SECRET" || { echo "Missing WEALTH_SESSION_SECRET secret"; exit 1; }
+            test -n "$WEALTH_ACCESS_KEY" || { echo "Missing WEALTH_ACCESS_KEY secret"; exit 1; }
+            echo "$REGISTRY_TOKEN" | sudo docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+            # The image exists only after CI build and tests pass; wait up to 15 min for it.
+            pulled=0
+            for i in $(seq 1 30); do
+              if sudo docker pull "$IMAGE"; then pulled=1; break; fi
+              echo "image not published yet ($i/30), waiting 30s"; sleep 30
+            done
+            [ "$pulled" = 1 ] || { echo "Image $IMAGE never appeared; CI probably failed. Nothing changed."; exit 1; }
+            PREV="$(sudo docker inspect wealth-bss --format '{{.Config.Image}}' 2>/dev/null || true)"
+            sudo docker rm -f wealth-bss 2>/dev/null || true
+            run_bss() {
+              sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 \
+                -e SPRING_PROFILES_ACTIVE="$SPRING_PROFILES_ACTIVE" \
+                -p 127.0.0.1:8081:8080 \
+                -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" \
+                -e WEALTH_JDBC_URL="$WEALTH_JDBC_URL" \
+                -e WEALTH_DB_USERNAME="$WEALTH_DB_USERNAME" \
+                -e WEALTH_DB_PASSWORD="$WEALTH_DB_PASSWORD" \
+                -e SPRING_DATA_REDIS_URL="$REDIS_URL" \
+                -e WEALTH_SESSION_SECRET="$WEALTH_SESSION_SECRET" \
+                -e WEALTH_ACCESS_KEY="$WEALTH_ACCESS_KEY" \
+                "$1"
+            }
+            run_bss "$IMAGE"
+            for i in $(seq 1 60); do
+              [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/actuator/health)" = 200 ] && { echo "wealth-bss is UP on 8081 with $IMAGE"; exit 0; }
+              sleep 5
+            done
+            echo "Health check failed."
+            sudo docker logs --tail 30 wealth-bss 2>&1 | grep -viE 'password|secret|token' || true
+            sudo docker rm -f wealth-bss 2>/dev/null || true
+            if [ -n "$PREV" ]; then echo "Rolling back to $PREV"; run_bss "$PREV"; fi
+            exit 1
