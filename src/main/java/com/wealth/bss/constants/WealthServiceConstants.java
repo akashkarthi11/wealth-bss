@@ -7,8 +7,23 @@ public final class WealthServiceConstants {
 
 	public static final String ENTERING = "Entering ";
 	public static final String EXITING = "Exiting ";
+	public static final String LOG_REJECTED = " | rejected";
+	public static final String LOG_SIGNED_IN = " | signed in";
 
 	public static final String REQUEST_CONTEXT_KEY_PREFIX = "requestContext:";
+
+	// Rate-limit keys in Redis.
+	public static final String LOGIN_IP_KEY_PREFIX = "login:ip:";
+	public static final String LOGIN_EMAIL_KEY_PREFIX = "login:email:";
+	public static final String AUTH_IP_KEY_PREFIX = "auth:ip:";
+
+	// Paths of the BSS; the BFF calls the same strings through its Feign client.
+	public static final String USERS_BASE = "/wealth-service/api/v1/customers/users";
+	public static final String LOGIN = "/login";
+	public static final String REGISTER = "/register";
+	public static final String ME = "/me";
+	public static final String LOGOUT = "/logout";
+	public static final String PASSWORD_RESET = "/password/reset";
 
 	public static final String ROLE_ADMIN = "admin";
 	public static final String SESSION_VERSION_CLAIM = "sv";

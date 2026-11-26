@@ -69,8 +69,8 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 		String email = requireEmail(request == null ? null : request.getEmail());
 		String password = requirePassword(request.getPassword());
 		String ip = String.valueOf(RequestHeaderUtil.getIp());
-		String ipKey = "login:ip:" + ip;
-		String emailKey = "login:email:" + email;
+		String ipKey = WealthServiceConstants.LOGIN_IP_KEY_PREFIX + ip;
+		String emailKey = WealthServiceConstants.LOGIN_EMAIL_KEY_PREFIX + email;
 		if (rateLimiter.count(ipKey) >= WealthServiceConstants.LOGIN_IP_LIMIT
 				|| rateLimiter.count(emailKey) >= WealthServiceConstants.LOGIN_EMAIL_LIMIT) {
 			throw new KarthiException(BaseError.TOO_MANY_LOGIN_ATTEMPTS);
@@ -85,11 +85,11 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 		if (!ok) {
 			rateLimiter.attempt(ipKey, WealthServiceConstants.LOGIN_IP_LIMIT, WealthServiceConstants.AUTH_WINDOW_SECONDS);
 			rateLimiter.attempt(emailKey, WealthServiceConstants.LOGIN_EMAIL_LIMIT, WealthServiceConstants.AUTH_WINDOW_SECONDS);
-			LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rejected");
+			LOGGER.info(WealthServiceConstants.EXITING + methodName + WealthServiceConstants.LOG_REJECTED);
 			throw new KarthiException(BaseError.PASSWORD_MISMATCH);
 		}
 		rateLimiter.reset(emailKey);
-		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | signed in");
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + WealthServiceConstants.LOG_SIGNED_IN);
 		return signedIn(GenericAssembler.toDTO(user, UserDto.class), user.getSessionVersion());
 	}
 
@@ -104,10 +104,7 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 			throw new KarthiException(BaseError.SECURITY_KEY_MISMATCH);
 		}
 		throwOnPasswordProblem(password);
-		WealthUserCredentialEntity credential = new WealthUserCredentialEntity();
-		credential.setEmail(email);
-		credential.setPasswordHash(passwordUtil.hash(password));
-		WealthUserEntity created = wealthUserDao.insertUser(credential);
+		WealthUserEntity created = wealthUserDao.insertUser(credentialFor(email, password));
 		if (created == null) {
 			throw new KarthiException(BaseError.EMAILID_ALREADY_PRESENT);
 		}
@@ -149,10 +146,7 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 		String newPassword = requirePassword(request.getNewPassword());
 		limitAuthPerIp();
 		throwOnPasswordProblem(newPassword);
-		WealthUserCredentialEntity credential = new WealthUserCredentialEntity();
-		credential.setEmail(email);
-		credential.setPasswordHash(passwordUtil.hash(newPassword));
-		WealthUserEntity updated = wealthUserDao.updatePassword(credential);
+		WealthUserEntity updated = wealthUserDao.updatePassword(credentialFor(email, newPassword));
 		if (updated == null) {
 			throw new KarthiException(BaseError.USER_NOT_FOUND);
 		}
@@ -183,10 +177,18 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 	}
 
 	private void limitAuthPerIp() {
-		if (!rateLimiter.attempt("auth:ip:" + RequestHeaderUtil.getIp(), WealthServiceConstants.AUTH_IP_LIMIT,
+		if (!rateLimiter.attempt(WealthServiceConstants.AUTH_IP_KEY_PREFIX + RequestHeaderUtil.getIp(),
+				WealthServiceConstants.AUTH_IP_LIMIT,
 				WealthServiceConstants.AUTH_WINDOW_SECONDS)) {
 			throw new KarthiException(BaseError.TOO_MANY_LOGIN_ATTEMPTS);
 		}
+	}
+
+	private WealthUserCredentialEntity credentialFor(String email, String password) {
+		WealthUserCredentialEntity credential = new WealthUserCredentialEntity();
+		credential.setEmail(email);
+		credential.setPasswordHash(passwordUtil.hash(password));
+		return credential;
 	}
 
 	private boolean secretKeyMatches(String supplied) {
