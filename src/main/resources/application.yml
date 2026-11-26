@@ -25,6 +25,7 @@ management:
       # "never" by default - a health breakdown (db/redis up/down, driver names) is useful for local dev
       # dashboards but not something to expose publicly without thought. Override per-environment.
       show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:never}
+      show-components: ${MANAGEMENT_HEALTH_SHOW_COMPONENTS:always}
 
 wealth:
   jdbc:
