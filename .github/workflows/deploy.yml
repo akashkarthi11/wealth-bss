@@ -74,6 +74,7 @@ jobs:
                 -p 10.0.1.54:8081:8080 \
                 -v /etc/wealth/jwt-private.pem:/etc/wealth/jwt-private.pem:ro \
                 -e JWT_PRIVATE_KEY_PATH=/etc/wealth/jwt-private.pem \
+                --env-file /etc/wealth/bss-config.env \
                 -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" \
                 -e WEALTH_JDBC_URL="$WEALTH_JDBC_URL" \
                 -e WEALTH_DB_USERNAME="$WEALTH_DB_USERNAME" \

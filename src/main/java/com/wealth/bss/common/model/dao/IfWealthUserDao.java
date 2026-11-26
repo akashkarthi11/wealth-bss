@@ -1,5 +1,7 @@
 package com.wealth.bss.common.model.dao;
 
+import java.util.List;
+
 import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthUserCredentialEntity;
 import com.wealth.bss.common.model.entity.WealthUserEntity;
@@ -20,4 +22,11 @@ public interface IfWealthUserDao {
 
 	// searchText carries the role; returns a comma-separated menu list, or null when none is saved.
 	String findMenusByRole(PaginationDto paginationDto);
+
+	// Every user, by email: id, email and role only (for the admin's Users screen).
+	List<WealthUserEntity> findAll();
+
+	// entity.id and entity.role: sets the role and bumps the session version so the user is signed out and the new menus apply at once.
+	// Returns null when the id is unknown.
+	WealthUserEntity updateRole(WealthUserEntity entity);
 }

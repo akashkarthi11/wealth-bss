@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.wealth.bss.common.model.dao.IfWealthRoleDao;
 import com.wealth.bss.common.model.dto.PaginationDto;
+import com.wealth.bss.common.model.entity.WealthRoleEntity;
 import com.wealth.bss.common.model.entity.WealthRoleMenuEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.bss.query.QueryConstants;
@@ -30,6 +31,27 @@ public class WealthRoleDaoImple extends WealthBaseDaoImple implements IfWealthRo
 		Long count = jdbcTemplate.queryForObject(QueryConstants.COUNT_USERS_BY_ROLE, Long.class, paginationDto.getSearchText());
 		LOGGER.info(WealthServiceConstants.EXITING + methodName);
 		return count == null ? 0 : count;
+	}
+
+	@Override
+	public List<WealthRoleEntity> findAllRoles() {
+		String methodName = "findAllRoles";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		List<WealthRoleEntity> rows = jdbcTemplate.query(QueryConstants.FIND_ROLES, new BeanPropertyRowMapper<>(WealthRoleEntity.class));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
+		return rows;
+	}
+
+	@Override
+	@Transactional
+	public WealthRoleEntity insertRole(WealthRoleEntity entity) {
+		String methodName = "insertRole";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		setActor(entity);
+		List<WealthRoleEntity> rows = jdbcTemplate.query(QueryConstants.INSERT_ROLE, new BeanPropertyRowMapper<>(WealthRoleEntity.class), entity.getRole(),
+				entity.getLabel());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | inserted=" + rows.size());
+		return rows.isEmpty() ? null : rows.get(0);
 	}
 
 	@Override

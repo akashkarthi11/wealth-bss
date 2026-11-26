@@ -13,8 +13,11 @@ import com.wealth.common.generic.BaseError;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
 import com.wealth.common.model.dto.admin.RecordsRequestDto;
+import com.wealth.common.model.dto.admin.RoleCreateRequestDto;
+import com.wealth.common.model.dto.admin.RoleDto;
+import com.wealth.common.model.dto.admin.UserAccessDto;
+import com.wealth.common.model.dto.admin.UserRoleRequestDto;
 import com.wealth.common.model.dto.admin.RoleMenusDto;
-import com.wealth.common.model.dto.admin.RoleMenusRequestDto;
 import com.wealth.common.model.dto.admin.RolesOverviewDto;
 import com.wealth.common.model.dto.admin.SnapshotDto;
 
@@ -38,12 +41,33 @@ public class AdminServiceController implements IfAdminServiceContract {
 	}
 
 	@Override
-	public ResponseEntity<ApiResponse<RoleMenusDto, Void>> updateRoleMenus(RoleMenusRequestDto request) throws KarthiException {
+	public ResponseEntity<ApiResponse<RoleMenusDto, Void>> updateRoleMenus(RoleMenusDto request) throws KarthiException {
 		LOGGER.info("Entering updateRoleMenus");
 		if (request == null) {
 			throw new KarthiException(BaseError.INVALID_REQUEST);
 		}
 		return responseTemplate.apires(adminService.updateRoleMenus(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<RoleDto, Void>> createRole(RoleCreateRequestDto request) throws KarthiException {
+		LOGGER.info("Entering createRole");
+		return responseTemplate.apires(adminService.createRole(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<List<UserAccessDto>, Void>> usersList() throws KarthiException {
+		LOGGER.info("Entering usersList");
+		return responseTemplate.apires(adminService.listUsers(), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<UserAccessDto, Void>> setUserRole(UserRoleRequestDto request) throws KarthiException {
+		LOGGER.info("Entering setUserRole");
+		if (request == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		return responseTemplate.apires(adminService.setUserRole(request), BaseError.Success);
 	}
 
 	@Override

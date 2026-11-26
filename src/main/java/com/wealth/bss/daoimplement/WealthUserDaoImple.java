@@ -68,6 +68,25 @@ public class WealthUserDaoImple implements IfWealthUserDao {
 	}
 
 	@Override
+	public List<WealthUserEntity> findAll() {
+		String methodName = "findAll";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		List<WealthUserEntity> rows = jdbcTemplate.query(QueryConstants.FIND_ALL_USERS, new BeanPropertyRowMapper<>(WealthUserEntity.class));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
+		return rows;
+	}
+
+	@Override
+	public WealthUserEntity updateRole(WealthUserEntity entity) {
+		String methodName = "updateRole";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		List<WealthUserEntity> rows = jdbcTemplate.query(QueryConstants.UPDATE_USER_ROLE, new BeanPropertyRowMapper<>(WealthUserEntity.class), entity.getRole(),
+				entity.getId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | updated=" + rows.size());
+		return rows.isEmpty() ? null : rows.get(0);
+	}
+
+	@Override
 	public WealthUserEntity updatePassword(WealthUserCredentialEntity credential) {
 		String methodName = "updatePassword";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
