@@ -101,7 +101,7 @@ jobs:
             sudo docker rm -f wealth-bss 2>/dev/null || true
             sudo docker run -d --name wealth-bss --restart unless-stopped --memory=400m --cpus=0.7 \
               -e SPRING_PROFILES_ACTIVE="$SPRING_PROFILES_ACTIVE" \
-              -p 127.0.0.1:8080:8080 \
+              -p 127.0.0.1:8081:8080 \
               -e JAVA_TOOL_OPTIONS="-Xms128m -Xmx256m" \
               -e WEALTH_JDBC_URL="$WEALTH_JDBC_URL" \
               -e WEALTH_DB_USERNAME="$WEALTH_DB_USERNAME" \
