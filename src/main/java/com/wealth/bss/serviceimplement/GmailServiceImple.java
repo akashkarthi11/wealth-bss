@@ -959,6 +959,12 @@ public class GmailServiceImple implements IfGmailService {
 		return String.valueOf(sent);
 	}
 
+	// The first characters of a saved value and dots, so an admin can recognise it without seeing it.
+	private static String maskedStart(String value) {
+		int shown = Math.min(8, Math.max(0, value.length() / 3));
+		return value.substring(0, shown) + "••••••••";
+	}
+
 	// A saved number inside its limits; missing, unreadable or outside gives the default.
 	private static int number(String saved, int fallback, int min, int max) {
 		try {
@@ -985,6 +991,12 @@ public class GmailServiceImple implements IfGmailService {
 			dto.setStatementDays(configured.statementDays());
 			dto.setStatementMax(configured.statementMax());
 			dto.setAlertDays(configured.alertDays());
+			try {
+				requestContextService.requireAdmin();
+				dto.setClientIdMasked(maskedStart(configured.clientId()));
+			} catch (KarthiException e) {
+				dto.setClientIdMasked(null);
+			}
 		}
 		WealthUserConnectionEntity row = userDao.find(userId, WealthServiceConstants.GMAIL_USER);
 		if (row != null && row.isEnabled()) {

@@ -233,6 +233,10 @@ public final class WealthServiceConstants {
 	public static final String BROKER_FETCH = "/fetch";
 	public static final String BROKER_REMOVE = "/remove";
 	public static final int BROKER_VALUE_MAX = 200;
+	public static final String INDSTOCKS = "indstocks";
+	public static final String INDSTOCKS_BASE = "/wealth-service/api/v1/indstocks";
+	public static final String INDSTOCKS_PROBE_PATH = "/portfolio/holdings";
+	public static final int INDSTOCKS_TOKEN_MAX = 500;
 	public static final String GEMINI_PROVIDER = "gemini";
 	public static final String GEMINI_MODEL = "gemini-2.5-flash";
 	public static final int AI_TEXT_MAX = 60_000;

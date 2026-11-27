@@ -224,6 +224,26 @@ class GmailServiceImpleTest {
 	}
 
 	@Test
+	void theSavedClientIdIsShownMaskedToAnAdminOnlyAndTheSecretNeverAndANumberOnlySaveChangesOnlyThat() {
+		setUpApp();
+		String masked = service.status().getClientIdMasked();
+		assertEquals("clie••••••••", masked);
+		assertFalse(masked.contains("1234"), "never the whole id");
+
+		GmailAppSaveRequestDto days = new GmailAppSaveRequestDto();
+		days.setStatementDays(90);
+		service.appSave(days);
+		String stored = cipher.decrypt(commonRow.getCredentialEnc());
+		assertTrue(stored.contains("client-id-1234") && stored.contains("client-secret-xyz"), "id and secret untouched by a numbers-only save");
+		assertEquals(90, service.status().getStatementDays());
+		assertEquals(40, service.status().getStatementMax(), "the other numbers keep their value");
+
+		doThrow(new KarthiException(BaseError.ADMIN_ONLY_ACTION)).when(context).requireAdmin();
+		assertNull(service.status().getClientIdMasked(), "a user who is not an admin gets no part of the id");
+		assertTrue(service.status().isAppConfigured());
+	}
+
+	@Test
 	void theSearchWindowIsSetInCommonKeptWhenNotSentAndHeldToItsLimits() {
 		setUpApp();
 		GmailStatusDto fresh = service.status();
