@@ -79,6 +79,17 @@ public class WealthTransactionDaoImple extends WealthBaseDaoImple implements IfW
 	}
 
 	@Override
+	public boolean accountBelongsTo(String userId, String accountId) {
+		Integer count = jdbcTemplate.queryForObject(QueryConstants.COUNT_USER_ACCOUNT, Integer.class, userId, accountId);
+		return count != null && count > 0;
+	}
+
+	@Override
+	public boolean assignAccountIfMissing(String userId, String reference, String accountId) {
+		return jdbcTemplate.update(QueryConstants.ASSIGN_TRANSACTION_ACCOUNT, accountId, userId, reference) > 0;
+	}
+
+	@Override
 	public List<String> findAccountIdsByDigits(String userId, String digits) {
 		return jdbcTemplate.queryForList(QueryConstants.FIND_ACCOUNT_IDS_BY_DIGITS, String.class, userId, digits);
 	}

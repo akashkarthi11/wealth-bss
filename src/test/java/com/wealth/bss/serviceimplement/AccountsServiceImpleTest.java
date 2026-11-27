@@ -207,6 +207,8 @@ class AccountsServiceImpleTest {
 		assertEquals(0, new BigDecimal("5000").compareTo(overview.getTotals().getInvestment()));
 		assertEquals(0, new BigDecimal("300").compareTo(overview.getTotals().getLiability()));
 		assertEquals(0, new BigDecimal("5700.50").compareTo(overview.getTotals().getNetWorth()));
+		assertEquals(1, overview.getClosedAccounts().size(), "a closed account is listed apart, never in a bank or a total");
+		assertEquals("Old", overview.getClosedAccounts().get(0).getBankName());
 		assertEquals("CASA", overview.getBanks().get(0).getAccounts().get(0).getCategory());
 		assertEquals(0, new BigDecimal("6000.50").compareTo(overview.getBanks().get(0).getTotals().getNetWorth()));
 	}

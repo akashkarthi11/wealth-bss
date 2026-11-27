@@ -71,6 +71,10 @@ public class GmailServiceImple implements IfGmailService {
 	private static final String KEY_PAN = "pan";
 	private static final String KEY_DOB = "dob";
 	private static final String KEY_NAME = "name4";
+	// Extra statement passwords the user added, kept in the same encrypted block as cred:<label>.
+	private static final String KEY_CRED = "cred:";
+	private static final Pattern CRED_LABEL = Pattern.compile("^[A-Za-z0-9 _-]{1,30}$");
+	private static final int CRED_MAX = 10;
 	// passwords the user typed and chose to keep, one per line
 	private static final String KEY_EXTRA = "extraPasswords";
 	private static final int EXTRA_PASSWORDS_MAX = 5;
@@ -155,7 +159,22 @@ public class GmailServiceImple implements IfGmailService {
 		if (!dob.isEmpty()) {
 			values.put(KEY_DOB, dob);
 		}
-		if (blank(values.get(KEY_PAN)) && blank(values.get(KEY_DOB))) {
+		String removeLabel = request == null || request.getRemoveExtra() == null ? "" : request.getRemoveExtra().trim();
+		String extraLabel = request == null || request.getExtraLabel() == null ? "" : request.getExtraLabel().trim();
+		String extraValue = request == null || request.getExtraValue() == null ? "" : request.getExtraValue().trim();
+		if (!extraLabel.isEmpty() || !extraValue.isEmpty()) {
+			boolean isNew = !values.containsKey(KEY_CRED + extraLabel);
+			if (!CRED_LABEL.matcher(extraLabel).matches() || extraValue.isEmpty() || extraValue.length() > WealthServiceConstants.STATEMENT_PASSWORD_MAX || extraValue.chars().anyMatch(c -> c < ' ' || c == 127)
+					|| (isNew && values.keySet().stream().filter(k -> k.startsWith(KEY_CRED)).count() >= CRED_MAX)) {
+				throw new KarthiException(BaseError.GMAIL_REQUEST_INVALID);
+			}
+			values.put(KEY_CRED + extraLabel, extraValue);
+		}
+		if (!removeLabel.isEmpty()) {
+			values.remove(KEY_CRED + removeLabel);
+		}
+		boolean anyExtra = values.keySet().stream().anyMatch(k -> k.startsWith(KEY_CRED));
+		if (removeLabel.isEmpty() && blank(values.get(KEY_PAN)) && blank(values.get(KEY_DOB)) && !anyExtra) {
 			throw new KarthiException(BaseError.GMAIL_REQUEST_INVALID);
 		}
 		userDao.saveCredential(userId, WealthServiceConstants.GMAIL_USER, cipher.encrypt(pack(values)));
@@ -174,6 +193,13 @@ public class GmailServiceImple implements IfGmailService {
 		shown.setPan(values.getOrDefault(KEY_PAN, ""));
 		shown.setDob(values.getOrDefault(KEY_DOB, ""));
 		shown.setName4(values.getOrDefault(KEY_NAME, ""));
+		Map<String, String> extras = new LinkedHashMap<>();
+		values.forEach((key, value) -> {
+			if (key.startsWith(KEY_CRED)) {
+				extras.put(key.substring(KEY_CRED.length()), value);
+			}
+		});
+		shown.setExtras(extras);
 		return shown;
 	}
 
@@ -185,9 +211,7 @@ public class GmailServiceImple implements IfGmailService {
 			throw new KarthiException(BaseError.GMAIL_NOT_CONNECTED);
 		}
 		Map<String, String> values = unpack(row.getCredentialEnc());
-		values.remove(KEY_PAN);
-		values.remove(KEY_DOB);
-		values.remove(KEY_NAME);
+		credentialKeys(values).forEach(values::remove);
 		userDao.saveCredential(userId, WealthServiceConstants.GMAIL_USER, cipher.encrypt(pack(values)));
 		return statusOf(userId);
 	}
@@ -272,6 +296,10 @@ public class GmailServiceImple implements IfGmailService {
 		} catch (IOException e) {
 			throw new KarthiException(BaseError.GMAIL_REQUEST_INVALID);
 		}
+		String accountId = request.getAccountId() == null || request.getAccountId().isBlank() ? null : request.getAccountId().trim();
+		if (accountId != null && (!ID_SHAPE.matcher(accountId).matches() || !transactionDao.accountBelongsTo(userId, accountId))) {
+			throw new KarthiException(BaseError.GMAIL_REQUEST_INVALID);
+		}
 		// Each row is checked on its own by the import: a new one is stored as a transaction, one already there is skipped, one with a problem goes to the Data quality review as its own item.
 		// Rows go in by date and time, oldest first, so the list shows them in the order they happened. The reference is made from the statement and the row, so accepting again repeats nothing.
 		List<BankLineDto> lines = new ArrayList<>();
@@ -289,6 +317,7 @@ public class GmailServiceImple implements IfGmailService {
 			line.setAmount(amount);
 			line.setDebit(Boolean.TRUE.equals(row.get("debit")));
 			line.setSure(Boolean.TRUE.equals(row.get("sure")));
+			line.setAccountId(accountId);
 			line.setSuspicious(java.time.LocalDate.parse(day).isAfter(java.time.LocalDate.now().plusDays(1)));
 			lines.add(line);
 			order.add(day + " " + time + " " + String.format("%06d", index));
@@ -596,6 +625,11 @@ public class GmailServiceImple implements IfGmailService {
 	// user's own statement.
 	private static List<String> passwordsFor(Map<String, String> values) {
 		List<String> all = basePasswords(values);
+		values.forEach((key, value) -> {
+			if (key.startsWith(KEY_CRED) && !blank(value) && !all.contains(value)) {
+				all.add(value);
+			}
+		});
 		for (String extra : unlines(values.get(KEY_EXTRA))) {
 			if (!extra.isBlank() && !all.contains(extra)) {
 				all.add(extra);
@@ -678,6 +712,7 @@ public class GmailServiceImple implements IfGmailService {
 		BankImportResultDto imported = importService.importLines(WealthServiceConstants.WORKFLOW_SOURCE_ALERT, lines);
 		result.setAdded(imported.getStored());
 		result.setDuplicates(imported.getSame() + imported.getRepeated());
+		result.setMapped(imported.getMapped());
 		result.setReview(imported.getReview());
 		result.setBalancesSeen(new ArrayList<>(balances.values()));
 		Map<String, String> kept = new LinkedHashMap<>();
@@ -782,7 +817,7 @@ public class GmailServiceImple implements IfGmailService {
 		WealthUserConnectionEntity before = userDao.find(userId, WealthServiceConstants.GMAIL_USER);
 		Map<String, String> kept = before == null ? new LinkedHashMap<>() : unpack(before.getCredentialEnc());
 		Map<String, String> values = new LinkedHashMap<>();
-		for (String key : List.of(KEY_PAN, KEY_DOB, KEY_NAME)) {
+		for (String key : credentialKeys(kept)) {
 			if (!blank(kept.get(key))) {
 				values.put(key, kept.get(key));
 			}
@@ -841,7 +876,7 @@ public class GmailServiceImple implements IfGmailService {
 		}
 		// Disconnecting takes Gmail away, not the saved statement passwords: they stay (encrypted) for the next connection. With none saved the row is removed as before.
 		Map<String, String> passwords = new LinkedHashMap<>();
-		for (String key : List.of(KEY_PAN, KEY_DOB, KEY_NAME)) {
+		for (String key : credentialKeys(values)) {
 			if (!blank(values.get(key))) {
 				passwords.put(key, values.get(key));
 			}
@@ -959,6 +994,13 @@ public class GmailServiceImple implements IfGmailService {
 		return String.valueOf(sent);
 	}
 
+	// The saved statement password keys: PAN, date of birth, name letters and every extra password the user added.
+	private static List<String> credentialKeys(Map<String, String> values) {
+		List<String> keys = new ArrayList<>(List.of(KEY_PAN, KEY_DOB, KEY_NAME));
+		values.keySet().stream().filter(k -> k.startsWith(KEY_CRED)).forEach(keys::add);
+		return keys;
+	}
+
 	// The first characters of a saved value and dots, so an admin can recognise it without seeing it.
 	private static String maskedStart(String value) {
 		int shown = Math.min(8, Math.max(0, value.length() / 3));
@@ -1003,7 +1045,8 @@ public class GmailServiceImple implements IfGmailService {
 			dto.setConnected(true);
 			Map<String, String> values = unpack(row.getCredentialEnc());
 			dto.setEmail(mask(values.get("email")));
-			dto.setStatementPasswordsSet(!blank(values.get(KEY_PAN)) || !blank(values.get(KEY_DOB)));
+			dto.setStatementPasswordsSet(!blank(values.get(KEY_PAN)) || !blank(values.get(KEY_DOB)) || values.keySet().stream().anyMatch(k -> k.startsWith(KEY_CRED)));
+			values.keySet().stream().filter(k -> k.startsWith(KEY_CRED)).forEach(k -> dto.getExtraLabels().add(k.substring(KEY_CRED.length())));
 			dto.setPanSaved(!blank(values.get(KEY_PAN)));
 			dto.setDobSaved(!blank(values.get(KEY_DOB)));
 			dto.setNameSaved(!blank(values.get(KEY_NAME)));

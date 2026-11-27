@@ -667,6 +667,31 @@ class GmailServiceImpleTest {
 	}
 
 	@Test
+	void acceptingWithAnAccountGivesEveryRowThatAccountAndAnAccountThatIsNotTheUsersIsRefused() throws java.io.IOException {
+		readCardStatement(java.util.List.of("23/10/2026| 09:00 SHOP A C 99.00 l", "24/10/2026| 10:00 SHOP B C 12.00 l"));
+		java.util.List<String> accounts = new java.util.ArrayList<>();
+		when(transactions.insert(any())).thenAnswer(i -> {
+			com.wealth.bss.common.model.entity.WealthTransactionEntity entity = i.getArgument(0);
+			accounts.add(entity.getAccountId());
+			return entity;
+		});
+		String mine = "33333333-3333-3333-3333-333333333333";
+		var accept = new com.wealth.common.model.dto.admin.StatementAcceptRequestDto();
+		accept.setId("11111111-1111-1111-1111-111111111111");
+		accept.setAccountId(mine);
+
+		assertEquals(BaseError.GMAIL_REQUEST_INVALID, codeOf(() -> service.statementAccept(accept)), "an account that is not the user's");
+		assertTrue(accounts.isEmpty());
+
+		when(transactions.accountBelongsTo("user-1", mine)).thenReturn(true);
+		service.statementAccept(accept);
+		assertEquals(java.util.List.of(mine, mine), accounts, "every row got the chosen account");
+
+		accept.setAccountId("not-an-id");
+		assertEquals(BaseError.GMAIL_REQUEST_INVALID, codeOf(() -> service.statementAccept(accept)));
+	}
+
+	@Test
 	void aStatementThatIsNotTheCallersOrDidNotOpenCannotBeAccepted() throws java.io.IOException {
 		var row = readCardStatement(java.util.List.of("23/10/2026| 09:00 SHOP A C 99.00 l"));
 		var request = new com.wealth.common.model.dto.admin.StatementAcceptRequestDto();
@@ -813,6 +838,61 @@ class GmailServiceImpleTest {
 		assertEquals(5, result.getOpened(), "every form of the saved details opens its statement");
 		assertEquals(0, result.getLocked());
 		assertTrue(result.getLockedNames().isEmpty());
+	}
+
+	private static GmailStatementSettingsRequestDto extra(String label, String value) {
+		GmailStatementSettingsRequestDto request = new GmailStatementSettingsRequestDto();
+		request.setExtraLabel(label);
+		request.setExtraValue(value);
+		return request;
+	}
+
+	@Test
+	void anExtraPasswordIsAddedUnderALabelShownOnlyOnRevealTriedOnStatementsKeptThroughDisconnectAndRemoved() throws java.io.IOException {
+		connected();
+		service.statementSave(passwords("ABCDE1234F", "15071998"));
+		GmailStatusDto status = service.statementSave(extra("Slice savings", "s3cret-Pass"));
+		assertEquals(List.of("Slice savings"), status.getExtraLabels(), "only the label is shown");
+		assertFalse(userRow.getCredentialEnc().contains("s3cret"), "kept encrypted");
+		assertEquals("s3cret-Pass", service.statementReveal().getExtras().get("Slice savings"));
+		assertFalse(status.toString().contains("s3cret-Pass"));
+
+		when(client.pdfAttachments(API, "fresh-access", "m1")).thenReturn(java.util.List.of(new GmailClient.Attachment("slice_statement.pdf", "att-1-00000000")));
+		when(client.attachment(API, "fresh-access", "m1", "att-1-00000000")).thenReturn(com.wealth.bss.config.StatementReaderTest.pdf(java.util.List.of("Closing Balance Rs. 5.00 Cr"), "s3cret-Pass"));
+		when(client.messageIds(eq(API), eq("fresh-access"), anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(List.of("m1"));
+		assertEquals(1, service.statements().getOpened(), "the extra password opens a statement the three others do not");
+
+		service.disconnect();
+		assertTrue(cipher.decrypt(userRow.getCredentialEnc()).contains("cred:Slice savings"), "disconnecting keeps the extra password");
+
+		connected();
+		assertEquals(List.of("Slice savings"), service.status().getExtraLabels(), "a new connection keeps it");
+
+		GmailStatementSettingsRequestDto remove = new GmailStatementSettingsRequestDto();
+		remove.setRemoveExtra("Slice savings");
+		assertTrue(service.statementSave(remove).getExtraLabels().isEmpty());
+		assertTrue(service.statementReveal().getExtras().isEmpty());
+
+		service.statementSave(extra("Other", "pw-two-1234"));
+		service.statementClear();
+		assertTrue(service.status().getExtraLabels().isEmpty(), "Clear removes the extra passwords too");
+		assertFalse(service.status().isStatementPasswordsSet());
+	}
+
+	@Test
+	void extraPasswordsAreCheckedLimitedAndNeverTheOnlyThingRefusedWhenOneIsAdded() {
+		connected();
+		for (String[] bad : new String[][] { { "", "pw" }, { "ok", "" }, { "bad/label", "pw" }, { "x".repeat(31), "pw" }, { "ok", "x".repeat(101) }, { "ok", "has\ttab" } }) {
+			assertEquals(BaseError.GMAIL_REQUEST_INVALID, codeOf(() -> service.statementSave(extra(bad[0], bad[1]))), String.join("|", bad));
+		}
+		assertTrue(service.status().getExtraLabels().isEmpty(), "a refused add saves nothing");
+		for (int i = 0; i < 10; i++) {
+			service.statementSave(extra("Bank " + i, "password-" + i));
+		}
+		assertEquals(BaseError.GMAIL_REQUEST_INVALID, codeOf(() -> service.statementSave(extra("Bank 10", "password-10"))), "at most ten");
+		service.statementSave(extra("Bank 3", "changed-pass"));
+		assertEquals("changed-pass", service.statementReveal().getExtras().get("Bank 3"), "an existing label is replaced, not counted again");
+		assertEquals(10, service.status().getExtraLabels().size());
 	}
 
 	private static com.wealth.common.model.dto.admin.StatementUploadRequestDto upload(String name, byte[] bytes, String password, boolean keep) {

@@ -105,11 +105,16 @@ public class AccountsServiceImple implements IfAccountsService {
 		Map<String, BankDto> banks = new LinkedHashMap<>();
 		AccountTotalsDto totals = emptyTotals();
 		List<AccountDto> investmentAccounts = new ArrayList<>();
+		List<AccountDto> closedAccounts = new ArrayList<>();
 		for (WealthAccountEntity entity : wealthAccountDao.findByUser(paginationDto)) {
+			WealthAccountSubtypeEntity subtype = subtypes.get(entity.getSubtypeCode());
+			if (WealthServiceConstants.ACCOUNT_CLOSED.equals(entity.getStatus())) {
+				closedAccounts.add(toAccount(entity, subtype, valued(subtype, held.get(entity.getId()), latest.get(entity.getId()))));
+				continue;
+			}
 			if (!WealthServiceConstants.ACCOUNT_ACTIVE.equals(entity.getStatus())) {
 				continue;
 			}
-			WealthAccountSubtypeEntity subtype = subtypes.get(entity.getSubtypeCode());
 			AccountDto account = toAccount(entity, subtype, valued(subtype, held.get(entity.getId()), latest.get(entity.getId())));
 			add(totals, account);
 			// A broker account valued by its holdings (demat) is an investment, not a bank account: it counts in the totals and shows on Investments.
@@ -129,6 +134,7 @@ public class AccountsServiceImple implements IfAccountsService {
 		overview.setTotals(totals);
 		overview.setBanks(new ArrayList<>(banks.values()));
 		overview.setInvestmentAccounts(investmentAccounts);
+		overview.setClosedAccounts(closedAccounts);
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | banks=" + banks.size());
 		return overview;
 	}

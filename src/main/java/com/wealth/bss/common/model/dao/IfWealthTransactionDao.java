@@ -26,6 +26,12 @@ public interface IfWealthTransactionDao {
 	// Whether the user has a transaction with that reference.
 	boolean referenceExists(String userId, String reference);
 
+	// Whether the account is the user's own.
+	boolean accountBelongsTo(String userId, String accountId);
+
+	// Gives the account to the user's transaction with that reference, only when it has none yet. True when one was changed.
+	boolean assignAccountIfMissing(String userId, String reference, String accountId);
+
 	// The ids of the caller's active accounts that carry those last digits (one, when the statement can be placed).
 	List<String> findAccountIdsByDigits(String userId, String digits);
 

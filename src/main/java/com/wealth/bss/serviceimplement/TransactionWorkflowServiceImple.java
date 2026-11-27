@@ -61,14 +61,15 @@ public class TransactionWorkflowServiceImple implements IfBankImportService, IfT
 		BankImportResultDto result = new BankImportResultDto();
 		for (BankLineDto line : lines) {
 			check(line);
+			String digits = line.getAccountDigits() == null ? "" : line.getAccountDigits().trim();
+			String accountId = accountOf(userId, line, digits);
 			if (transactionDao.referenceExists(userId, line.getRef()) || workflowDao.exists(userId, line.getRef())) {
+				if (accountId != null && transactionDao.assignAccountIfMissing(userId, line.getRef(), accountId)) {
+					result.setMapped(result.getMapped() + 1);
+				}
 				result.setRepeated(result.getRepeated() + 1);
 				continue;
 			}
-			String digits = line.getAccountDigits() == null ? "" : line.getAccountDigits().trim();
-			List<String> accounts = digits.isEmpty() ? List.of()
-					: blank(line.getBank()) ? transactionDao.findAccountIdsByDigits(userId, digits) : transactionDao.findAccountIdsByLastDigits(userId, digits, line.getBank());
-			String accountId = accounts.size() == 1 ? accounts.get(0) : null;
 			String direction = line.isDebit() ? WealthServiceConstants.DIRECTION_DEBIT : WealthServiceConstants.DIRECTION_CREDIT;
 			List<WealthTransactionEntity> matches = transactionDao.findStatementMatches(userId, accountId, line.getAmount().setScale(2, RoundingMode.HALF_UP), direction, line.getDay());
 			String reason = !line.isSure() ? WealthServiceConstants.WORKFLOW_PARSE_UNSURE : line.isSuspicious() ? WealthServiceConstants.WORKFLOW_SUSPICIOUS : null;
@@ -91,11 +92,24 @@ public class TransactionWorkflowServiceImple implements IfBankImportService, IfT
 				result.setRepeated(result.getRepeated() + 1);
 			}
 		}
-		if (result.getStored() > 0) {
+		if (result.getStored() > 0 || result.getMapped() > 0) {
 			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, userId);
 		}
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | stored=" + result.getStored() + " same=" + result.getSame() + " review=" + result.getReview() + " repeated=" + result.getRepeated());
 		return result;
+	}
+
+	// The account the user chose (it must be theirs), else the one account of that bank whose last digits match; none when there is no single match.
+	private String accountOf(String userId, BankLineDto line, String digits) {
+		if (!blank(line.getAccountId())) {
+			if (!transactionDao.accountBelongsTo(userId, line.getAccountId())) {
+				throw new KarthiException(BaseError.TRANSACTION_INVALID);
+			}
+			return line.getAccountId();
+		}
+		List<String> accounts = digits.isEmpty() ? List.of()
+				: blank(line.getBank()) ? transactionDao.findAccountIdsByDigits(userId, digits) : transactionDao.findAccountIdsByLastDigits(userId, digits, line.getBank());
+		return accounts.size() == 1 ? accounts.get(0) : null;
 	}
 
 	private static void check(BankLineDto line) {

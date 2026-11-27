@@ -159,6 +159,37 @@ class TransactionWorkflowServiceImpleTest {
 	}
 
 	@Test
+	void aLineImportedEarlierWithoutAnAccountIsGivenOneWhenItIsNowKnownAndANewLineUsesTheChosenAccount() {
+		when(transactions.referenceExists(USER, "gmail:old")).thenReturn(true);
+		when(transactions.assignAccountIfMissing(USER, "gmail:old", ACCOUNT)).thenReturn(true);
+		BankImportResultDto result = service.importLines("alert", List.of(line("gmail:old", "OLD ROW", "10.00", true)));
+		assertEquals(1, result.getRepeated());
+		assertEquals(1, result.getMapped(), "the account was found by its digits and given to the row that had none");
+		verify(nexus).evict(any(), eq(USER));
+
+		when(transactions.referenceExists(USER, "gmail:fine")).thenReturn(true);
+		when(transactions.assignAccountIfMissing(USER, "gmail:fine", ACCOUNT)).thenReturn(false);
+		assertEquals(0, service.importLines("alert", List.of(line("gmail:fine", "HAS ONE", "10.00", true))).getMapped(), "a row that already has an account is left alone");
+
+		BankLineDto chosen = line("stmt:new", "NEW ROW", "5.00", true);
+		chosen.setAccountDigits(null);
+		chosen.setAccountId(CANDIDATE);
+		when(transactions.accountBelongsTo(USER, CANDIDATE)).thenReturn(true);
+		service.importLines("statement", List.of(chosen));
+		verify(transactions).insert(argThat(entity -> CANDIDATE.equals(entity.getAccountId()) && "stmt:new".equals(entity.getExternalRef())));
+	}
+
+	@Test
+	void anAccountThatIsNotTheUsersIsRefusedAndNothingIsSaved() {
+		BankLineDto foreign = line("stmt:x", "ROW", "5.00", true);
+		foreign.setAccountId(CANDIDATE);
+		when(transactions.accountBelongsTo(USER, CANDIDATE)).thenReturn(false);
+		assertEquals(BaseError.TRANSACTION_INVALID, assertThrows(KarthiException.class, () -> service.importLines("statement", List.of(foreign))).getMessage());
+		verify(transactions, never()).insert(any());
+		verify(transactions, never()).assignAccountIfMissing(any(), any(), any());
+	}
+
+	@Test
 	void aRaceOnTheReferenceCountsAsRepeatedAndABadLineIsRefused() {
 		org.mockito.Mockito.doReturn(null).when(transactions).insert(any());
 		assertEquals(1, service.importLines("statement", List.of(line("stmt:7", "A", "10", true))).getRepeated());

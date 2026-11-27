@@ -193,6 +193,7 @@ public final class WealthServiceConstants {
 	public static final int PRICE_SCALE = 4;
 
 	public static final String ACCOUNT_ACTIVE = "active";
+	public static final String ACCOUNT_CLOSED = "closed";
 	public static final String CURRENCY_INR = "INR";
 	public static final String CATEGORY_CASA = "CASA";
 	public static final String CATEGORY_INVESTMENT = "INVESTMENT";
