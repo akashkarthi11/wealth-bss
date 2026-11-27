@@ -41,7 +41,7 @@ class EnvironmentServiceImpleTest {
 		kafka = mock(KafkaEndpoint.class);
 		postgres = mock(PostgresEndpoint.class);
 		settings = mock(EnvironmentSettings.class);
-		service = new EnvironmentServiceImple(context, redis, kafka, postgres, settings, "the-service-key");
+		service = new EnvironmentServiceImple(context, redis, kafka, postgres, settings, "the-service-key", "deployed-code");
 		when(postgres.current()).thenReturn("db.example.com:5432");
 		when(postgres.defaultAddress()).thenReturn("db.example.com:5432");
 		when(redis.current()).thenReturn("redis.example.com:6379");
@@ -303,7 +303,7 @@ class EnvironmentServiceImpleTest {
 		assertEquals("http://172.27.99.226:8081", service.pickAddress("the-service-key", pick).getUrl());
 		assertEquals(BaseError.SERVICE_KEY_REJECTED, codeOf(() -> service.pickAddress("wrong", pick)));
 		assertEquals(BaseError.SERVICE_KEY_REJECTED, codeOf(() -> service.pickAddress(null, pick)));
-		EnvironmentServiceImple noKey = new EnvironmentServiceImple(context, redis, kafka, postgres, settings, "");
+		EnvironmentServiceImple noKey = new EnvironmentServiceImple(context, redis, kafka, postgres, settings, "", "");
 		assertEquals(BaseError.SERVICE_KEY_REJECTED, codeOf(() -> noKey.pickAddress("", pick)));
 	}
 
@@ -335,5 +335,60 @@ class EnvironmentServiceImpleTest {
 		assertEquals(BaseError.ENVIRONMENT_ADDRESS_INVALID, codeOf(() -> service.kafkaUpdate(request("a:1,b:2,c:3,d:4,e:5,f:6"))));
 		assertEquals(BaseError.ENVIRONMENT_ADDRESS_INVALID, codeOf(() -> service.kafkaUpdate(request("a:1,169.254.1.1:2"))));
 		verify(kafka, never()).isUp(anyString(), any(), any());
+	}
+
+	// ---- sign-up access code ----
+
+	private ConnectionRequestDto codeRequest(String text) {
+		ConnectionRequestDto r = new ConnectionRequestDto();
+		r.setPassword(text);
+		return r;
+	}
+
+	@Test
+	void signupCodeIsSavedOnlyWhenItIsLongEnoughAndClean() {
+		when(settings.signupState()).thenReturn("saved");
+		when(settings.signupCode("deployed-code")).thenReturn("a-long-enough-code");
+
+		ConnectionDto info = service.signupUpdate(codeRequest("a-long-enough-code"));
+
+		verify(settings).saveSignupCode("a-long-enough-code");
+		assertEquals("saved", info.getStatus());
+		assertTrue(info.isCustomised());
+		assertTrue(info.isPasswordSet());
+		assertEquals(BaseError.ACCESS_CODE_TOO_SHORT, codeOf(() -> service.signupUpdate(codeRequest("short"))));
+		assertEquals(BaseError.ACCESS_CODE_TOO_SHORT, codeOf(() -> service.signupUpdate(codeRequest(null))));
+		assertEquals(BaseError.ENVIRONMENT_CREDENTIALS_INVALID, codeOf(() -> service.signupUpdate(codeRequest("has a hidden\u0007char"))));
+		verify(settings, never()).saveSignupCode("short");
+	}
+
+	@Test
+	void signupCanBeClosedAndPutBackToTheDeployedKey() {
+		when(settings.signupState()).thenReturn("closed");
+		when(settings.signupCode("deployed-code")).thenReturn("");
+		ConnectionDto closed = service.signupClose();
+		verify(settings).closeSignup();
+		assertEquals("closed", closed.getStatus());
+		assertTrue(!closed.isPasswordSet());
+
+		when(settings.signupState()).thenReturn("deployed");
+		when(settings.signupCode("deployed-code")).thenReturn("deployed-code");
+		ConnectionDto reset = service.signupReset();
+		verify(settings).resetSignup();
+		assertEquals("deployed", reset.getStatus());
+		assertTrue(!reset.isCustomised());
+		assertTrue(reset.isPasswordSet());
+	}
+
+	@Test
+	void theSignupCodeIsAdminOnlyAndNeverReturned() {
+		doThrow(new KarthiException(BaseError.ADMIN_ONLY_ACTION)).when(context).requireAdmin();
+		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(() -> service.signupGet()));
+		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(() -> service.signupUpdate(codeRequest("a-long-enough-code"))));
+		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(() -> service.signupClose()));
+		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(() -> service.signupReset()));
+		verify(settings, never()).saveSignupCode(anyString());
+		verify(settings, never()).closeSignup();
+		verify(settings, never()).resetSignup();
 	}
 }

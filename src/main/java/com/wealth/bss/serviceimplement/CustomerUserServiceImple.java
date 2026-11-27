@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.wealth.bss.common.model.dao.IfWealthUserDao;
+import com.wealth.bss.config.EnvironmentSettings;
 import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthUserCredentialEntity;
 import com.wealth.bss.common.model.entity.WealthUserEntity;
@@ -47,17 +48,19 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 	private final IfRequestContextService requestContextService;
 	private final JwtTokenUtil jwtTokenUtil;
 	private final String accessKey;
+	private final EnvironmentSettings environmentSettings;
 	private final long tokenLifetimeSeconds;
 
 	public CustomerUserServiceImple(IfWealthUserDao wealthUserDao, PasswordUtil passwordUtil,
 			LoginRateLimiter rateLimiter, IfRequestContextService requestContextService, JwtTokenUtil jwtTokenUtil,
-			@Value("${wealth.access.key:}") String accessKey,
+			EnvironmentSettings environmentSettings, @Value("${wealth.access.key:}") String accessKey,
 			@Value("${jwt.access-token-lifetime-seconds:3600}") long tokenLifetimeSeconds) {
 		this.wealthUserDao = wealthUserDao;
 		this.passwordUtil = passwordUtil;
 		this.rateLimiter = rateLimiter;
 		this.requestContextService = requestContextService;
 		this.jwtTokenUtil = jwtTokenUtil;
+		this.environmentSettings = environmentSettings;
 		this.accessKey = accessKey;
 		this.tokenLifetimeSeconds = tokenLifetimeSeconds;
 	}
@@ -188,11 +191,13 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 		return credential;
 	}
 
+	// The code is the admin's saved one, or the server's WEALTH_ACCESS_KEY; an empty code means sign-up is closed.
 	private boolean secretKeyMatches(String supplied) {
-		if (accessKey == null || accessKey.isBlank() || supplied == null) {
+		String code = environmentSettings.signupCode(accessKey);
+		if (code == null || code.isBlank() || supplied == null) {
 			return false;
 		}
-		return MessageDigest.isEqual(supplied.getBytes(StandardCharsets.UTF_8), accessKey.getBytes(StandardCharsets.UTF_8));
+		return MessageDigest.isEqual(supplied.getBytes(StandardCharsets.UTF_8), code.getBytes(StandardCharsets.UTF_8));
 	}
 
 	private void throwOnPasswordProblem(String password) {

@@ -116,4 +116,49 @@ class EnvironmentSettingsTest {
 		when(dao.insertIfMissing(argThat(e -> e != null && "ui_to_bff".equals(e.getSettingKey())))).thenReturn(null);
 		assertEquals("http://localhost:8080", settings.pickAddress("ui_to_bff", "http://localhost:8080"));
 	}
+
+	@Test
+	void aSavedSignupCodeIsStoredEncryptedAndReadBack() {
+		settings.saveSignupCode("a-long-enough-code");
+		verify(dao).upsert(argThat(e -> "signup_code".equals(e.getSettingKey()) && "saved".equals(e.getSettingValue()) && e.getPasswordEnc() != null
+				&& !e.getPasswordEnc().contains("a-long-enough-code")));
+
+		String stored = cipher.encrypt("a-long-enough-code");
+		when(dao.findAll()).thenReturn(List.of(row("signup_code", "saved", null, stored)));
+		assertEquals("a-long-enough-code", settings.signupCode("deployed"));
+		assertEquals("saved", settings.signupState());
+	}
+
+	@Test
+	void signupFallsBackToTheDeployedKeyUnlessClosed() {
+		when(dao.findAll()).thenReturn(List.of());
+		assertEquals("deployed-key", settings.signupCode("deployed-key"));
+		assertEquals("", settings.signupCode(null));
+		assertEquals("deployed", settings.signupState());
+
+		when(dao.findAll()).thenReturn(List.of(row("signup_code", "deployed", null, null)));
+		assertEquals("deployed-key", settings.signupCode("deployed-key"));
+
+		when(dao.findAll()).thenReturn(List.of(row("signup_code", "closed", null, null)));
+		assertEquals("", settings.signupCode("deployed-key"));
+		assertEquals("closed", settings.signupState());
+	}
+
+	@Test
+	void signupIsClosedWhenTheSavedCodeCannotBeReadOrTheTableFails() {
+		SettingsCipher otherKey = new SettingsCipher(Base64.getEncoder().encodeToString("ffffffffffffffffffffffffffffffff".getBytes()));
+		when(dao.findAll()).thenReturn(List.of(row("signup_code", "saved", null, otherKey.encrypt("a-long-enough-code"))));
+		assertEquals("", settings.signupCode("deployed-key"));
+
+		when(dao.findAll()).thenThrow(new IllegalStateException("db down"));
+		assertEquals("", settings.signupCode("deployed-key"));
+	}
+
+	@Test
+	void closingOrResettingSignupKeepsNoCode() {
+		settings.closeSignup();
+		verify(dao).upsert(argThat(e -> "signup_code".equals(e.getSettingKey()) && "closed".equals(e.getSettingValue()) && e.getPasswordEnc() == null));
+		settings.resetSignup();
+		verify(dao).upsert(argThat(e -> "signup_code".equals(e.getSettingKey()) && "deployed".equals(e.getSettingValue()) && e.getPasswordEnc() == null));
+	}
 }

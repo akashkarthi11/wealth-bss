@@ -40,6 +40,18 @@ public interface IfEnvironmentService {
 	// Admin: saves the address a service uses (request.key ui_to_bff or bff_to_bss, request.url the address) in wealth_settings.
 	ConnectionDto addressSave(ConnectionRequestDto request);
 
+	// The sign-up access code (admin only). Get: status saved, closed or deployed; passwordSet says whether sign-up has a code to match. Never returns the code.
+	ConnectionDto signupGet();
+
+	// request.password is the new code (at least 10 characters), saved encrypted and used at once.
+	ConnectionDto signupUpdate(ConnectionRequestDto request);
+
+	// Closes sign-up: no code is accepted until a new one is saved or the setting is reset.
+	ConnectionDto signupClose();
+
+	// Back to the server's WEALTH_ACCESS_KEY.
+	ConnectionDto signupReset();
+
 	// A service picking its address when it boots (request.key, request.url = its deployed address): the saved one, or the deployed one saved now.
 	// The caller proves itself with the shared service key instead of a user token.
 	ConnectionDto pickAddress(String serviceKey, ConnectionRequestDto request);

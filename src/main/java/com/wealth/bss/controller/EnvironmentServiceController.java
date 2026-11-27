@@ -103,4 +103,28 @@ public class EnvironmentServiceController implements IfEnvironmentServiceContrac
 		LOGGER.info("Entering addressSave");
 		return responseTemplate.apires(environmentService.addressSave(request), BaseError.Success);
 	}
+
+	@Override
+	public ResponseEntity<ApiResponse<ConnectionDto, Void>> signupGet() throws KarthiException {
+		LOGGER.info("Entering signupGet");
+		return responseTemplate.apires(environmentService.signupGet(), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<ConnectionDto, Void>> signupUpdate(ConnectionRequestDto request) throws KarthiException {
+		LOGGER.info("Entering signupUpdate");
+		return responseTemplate.apires(environmentService.signupUpdate(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<ConnectionDto, Void>> signupClose() throws KarthiException {
+		LOGGER.info("Entering signupClose");
+		return responseTemplate.apires(environmentService.signupClose(), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<ConnectionDto, Void>> signupReset() throws KarthiException {
+		LOGGER.info("Entering signupReset");
+		return responseTemplate.apires(environmentService.signupReset(), BaseError.Success);
+	}
 }

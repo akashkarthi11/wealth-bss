@@ -53,4 +53,16 @@ public interface IfEnvironmentServiceContract {
 
 	@PostMapping(WealthServiceConstants.ENV_ADDRESS_SAVE)
 	ResponseEntity<ApiResponse<ConnectionDto, Void>> addressSave(@RequestBody ConnectionRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ENV_SIGNUP_GET)
+	ResponseEntity<ApiResponse<ConnectionDto, Void>> signupGet() throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ENV_SIGNUP_UPDATE)
+	ResponseEntity<ApiResponse<ConnectionDto, Void>> signupUpdate(@RequestBody ConnectionRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ENV_SIGNUP_CLOSE)
+	ResponseEntity<ApiResponse<ConnectionDto, Void>> signupClose() throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ENV_SIGNUP_RESET)
+	ResponseEntity<ApiResponse<ConnectionDto, Void>> signupReset() throws KarthiException;
 }

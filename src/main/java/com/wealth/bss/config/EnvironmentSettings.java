@@ -102,6 +102,45 @@ public class EnvironmentSettings {
 		dao.upsert(entity(key, url, null, null));
 	}
 
+	// ---- the sign-up access code: saved (encrypted), closed, or the deployed WEALTH_ACCESS_KEY ----
+
+	public void saveSignupCode(String code) {
+		dao.upsert(entity(WealthServiceConstants.SETTING_SIGNUP_CODE, WealthServiceConstants.SIGNUP_SAVED, null, cipher.encrypt(code)));
+	}
+
+	public void closeSignup() {
+		dao.upsert(entity(WealthServiceConstants.SETTING_SIGNUP_CODE, WealthServiceConstants.SIGNUP_CLOSED, null, null));
+	}
+
+	public void resetSignup() {
+		dao.upsert(entity(WealthServiceConstants.SETTING_SIGNUP_CODE, WealthServiceConstants.SIGNUP_DEPLOYED, null, null));
+	}
+
+	// saved, closed or deployed (no row counts as deployed).
+	public String signupState() {
+		return find(dao.findAll(), WealthServiceConstants.SETTING_SIGNUP_CODE).map(WealthSettingEntity::getSettingValue)
+				.filter(value -> WealthServiceConstants.SIGNUP_SAVED.equals(value) || WealthServiceConstants.SIGNUP_CLOSED.equals(value)).orElse(WealthServiceConstants.SIGNUP_DEPLOYED);
+	}
+
+	// The code a new user must give; empty means sign-up is closed. A saved code that cannot be read closes it too.
+	public String signupCode(String deployedKey) {
+		try {
+			Optional<WealthSettingEntity> row = find(dao.findAll(), WealthServiceConstants.SETTING_SIGNUP_CODE);
+			String state = row.map(WealthSettingEntity::getSettingValue).orElse(WealthServiceConstants.SIGNUP_DEPLOYED);
+			if (WealthServiceConstants.SIGNUP_CLOSED.equals(state)) {
+				return "";
+			}
+			if (WealthServiceConstants.SIGNUP_SAVED.equals(state)) {
+				String code = cipher.decrypt(row.get().getPasswordEnc());
+				return code == null ? "" : code;
+			}
+		} catch (RuntimeException e) {
+			LOGGER.warn("The sign-up code could not be read; sign-up is closed: " + e.getClass().getSimpleName());
+			return "";
+		}
+		return deployedKey == null ? "" : deployedKey;
+	}
+
 	// The address a service should use: the saved one, or its deployed one saved now when there is none yet.
 	public String pickAddress(String key, String deployedUrl) {
 		WealthSettingEntity row = dao.insertIfMissing(atBoot(entity(key, deployedUrl, null, null)));

@@ -37,6 +37,7 @@ import com.wealth.common.model.dto.ThreadLocalDto;
 import com.wealth.common.model.dto.customer.LoginRequestDto;
 import com.wealth.common.model.dto.customer.LoginResponseDto;
 import com.wealth.common.model.dto.customer.PasswordResetRequestDto;
+import com.wealth.bss.config.EnvironmentSettings;
 import com.wealth.common.model.dto.customer.RegisterRequestDto;
 import com.wealth.common.model.dto.customer.UserDto;
 import com.wealth.common.utils.generic.RequestHeaderUtil;
@@ -53,6 +54,7 @@ class CustomerUserServiceImpleTest {
 	private IfRequestContextService contextService;
 	private JwtTokenUtil jwt;
 	private NexusServiceClient nexus;
+	private EnvironmentSettings environmentSettings;
 	private CustomerUserServiceImple service;
 
 	@SuppressWarnings("unchecked")
@@ -69,7 +71,10 @@ class CustomerUserServiceImpleTest {
 		RequestHeaderUtil.setIp("203.0.113.5");
 		when(limiter.attempt(anyString(), anyLong(), anyLong())).thenReturn(true);
 		when(jwt.generateToken(anyString(), anyMap())).thenReturn("jwt-value");
-		service = new CustomerUserServiceImple(dao, passwords, limiter, contextService, jwt, "owner-key", 604800);
+		// With nothing saved the sign-up code is the deployed key, which is what the settings return here.
+		environmentSettings = mock(EnvironmentSettings.class);
+		when(environmentSettings.signupCode(anyString())).thenAnswer(call -> call.getArgument(0));
+		service = new CustomerUserServiceImple(dao, passwords, limiter, contextService, jwt, environmentSettings, "owner-key", 604800);
 	}
 
 	@AfterEach
@@ -179,8 +184,24 @@ class CustomerUserServiceImpleTest {
 
 	@Test
 	void registrationIsOffWhenNoSecretKeyIsConfigured() {
-		CustomerUserServiceImple noKey = new CustomerUserServiceImple(dao, passwords, limiter, contextService, jwt, "", 3600);
+		CustomerUserServiceImple noKey = new CustomerUserServiceImple(dao, passwords, limiter, contextService, jwt, environmentSettings, "", 3600);
 		assertEquals(BaseError.SECURITY_KEY_MISMATCH, code(() -> noKey.register(register("", GOOD))));
+	}
+
+	@Test
+	void aCodeSavedInSettingsIsTheOneRegistrationChecks() {
+		when(environmentSettings.signupCode("owner-key")).thenReturn("saved-code-1");
+		assertEquals(BaseError.SECURITY_KEY_MISMATCH, code(() -> service.register(register("owner-key", GOOD))));
+		when(dao.insertUser(any())).thenReturn(null);
+		assertEquals(BaseError.EMAILID_ALREADY_PRESENT, code(() -> service.register(register("saved-code-1", GOOD))));
+	}
+
+	@Test
+	void registrationIsOffWhenSignUpIsClosedInSettings() {
+		when(environmentSettings.signupCode("owner-key")).thenReturn("");
+		assertEquals(BaseError.SECURITY_KEY_MISMATCH, code(() -> service.register(register("owner-key", GOOD))));
+		assertEquals(BaseError.SECURITY_KEY_MISMATCH, code(() -> service.register(register("", GOOD))));
+		verify(dao, never()).insertUser(any());
 	}
 
 	private PasswordResetRequestDto reset(String email, String password) {

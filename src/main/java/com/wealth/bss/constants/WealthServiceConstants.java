@@ -54,6 +54,10 @@ public final class WealthServiceConstants {
 	public static final String ENV_POSTGRES_UPDATE = "/postgres/update";
 	public static final String ENV_POSTGRES_RESET = "/postgres/reset";
 	public static final String ENV_ADDRESS_SAVE = "/address/save";
+	public static final String ENV_SIGNUP_GET = "/signup/get";
+	public static final String ENV_SIGNUP_UPDATE = "/signup/update";
+	public static final String ENV_SIGNUP_CLOSE = "/signup/close";
+	public static final String ENV_SIGNUP_RESET = "/signup/reset";
 	public static final String INTERNAL_SETTINGS_BASE = "/wealth-service/api/v1/internal/settings";
 	public static final String INTERNAL_PICK = "/pick";
 	public static final String HEADER_SERVICE_KEY = "X-Service-Key";
@@ -61,6 +65,12 @@ public final class WealthServiceConstants {
 	public static final String SETTING_KAFKA = "kafka";
 	public static final String SETTING_UI_TO_BFF = "ui_to_bff";
 	public static final String SETTING_BFF_TO_BSS = "bff_to_bss";
+	// Sign-up access code: saved = the admin's code, closed = no one can sign up, deployed = the WEALTH_ACCESS_KEY of the server.
+	public static final String SETTING_SIGNUP_CODE = "signup_code";
+	public static final String SIGNUP_SAVED = "saved";
+	public static final String SIGNUP_CLOSED = "closed";
+	public static final String SIGNUP_DEPLOYED = "deployed";
+	public static final int ACCESS_CODE_MIN_LENGTH = 10;
 	public static final String STATUS_UP = "UP";
 	public static final String STATUS_DOWN = "DOWN";
 	public static final String STATUS_NOT_CONFIGURED = "NOT_CONFIGURED";

@@ -38,15 +38,17 @@ public class EnvironmentServiceImple implements IfEnvironmentService {
 	private final PostgresEndpoint postgres;
 	private final EnvironmentSettings settings;
 	private final String serviceKey;
+	private final String accessKey;
 
 	public EnvironmentServiceImple(IfRequestContextService requestContextService, RedisEndpoint redis, KafkaEndpoint kafka, PostgresEndpoint postgres, EnvironmentSettings settings,
-			@Value("${WEALTH_SERVICE_KEY:}") String serviceKey) {
+			@Value("${WEALTH_SERVICE_KEY:}") String serviceKey, @Value("${wealth.access.key:}") String accessKey) {
 		this.requestContextService = requestContextService;
 		this.redis = redis;
 		this.kafka = kafka;
 		this.postgres = postgres;
 		this.settings = settings;
 		this.serviceKey = serviceKey == null ? "" : serviceKey;
+		this.accessKey = accessKey == null ? "" : accessKey;
 	}
 
 	@Override
@@ -183,6 +185,53 @@ public class EnvironmentServiceImple implements IfEnvironmentService {
 		String url = origin(request.getUrl());
 		settings.saveAddress(key, url);
 		return addressInfo(url);
+	}
+
+	@Override
+	public ConnectionDto signupGet() {
+		requestContextService.requireAdmin();
+		return signupInfo();
+	}
+
+	@Override
+	public ConnectionDto signupUpdate(ConnectionRequestDto request) {
+		String methodName = "signupUpdate";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		requestContextService.requireAdmin();
+		String code = request == null ? null : request.getPassword();
+		if (code == null || code.length() < WealthServiceConstants.ACCESS_CODE_MIN_LENGTH) {
+			throw new KarthiException(BaseError.ACCESS_CODE_TOO_SHORT);
+		}
+		if (code.length() > WealthServiceConstants.PASSWORD_MAX_LENGTH || CONTROL.matcher(code).find()) {
+			throw new KarthiException(BaseError.ENVIRONMENT_CREDENTIALS_INVALID);
+		}
+		settings.saveSignupCode(code);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return signupInfo();
+	}
+
+	@Override
+	public ConnectionDto signupClose() {
+		requestContextService.requireAdmin();
+		settings.closeSignup();
+		return signupInfo();
+	}
+
+	@Override
+	public ConnectionDto signupReset() {
+		requestContextService.requireAdmin();
+		settings.resetSignup();
+		return signupInfo();
+	}
+
+	// The state only: whether sign-up has a code to match, never the code.
+	private ConnectionDto signupInfo() {
+		ConnectionDto dto = new ConnectionDto();
+		String state = settings.signupState();
+		dto.setStatus(state);
+		dto.setCustomised(!WealthServiceConstants.SIGNUP_DEPLOYED.equals(state));
+		dto.setPasswordSet(!settings.signupCode(accessKey).isEmpty());
+		return dto;
 	}
 
 	@Override
