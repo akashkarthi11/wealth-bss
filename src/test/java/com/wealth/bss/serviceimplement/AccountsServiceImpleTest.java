@@ -25,6 +25,8 @@ import com.wealth.bss.common.model.dao.IfWealthAccountSplitDao;
 import com.wealth.bss.common.model.dao.IfWealthInvestmentDao;
 import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthAccountBalanceEntity;
+import com.wealth.bss.nexus.service.IfNexusReadService;
+import com.wealth.common.model.dto.CachedValueDto;
 import com.wealth.bss.common.model.entity.WealthAccountEntity;
 import com.wealth.bss.common.model.entity.WealthAccountSplitBalanceEntity;
 import com.wealth.bss.common.model.entity.WealthAccountSplitEntity;
@@ -47,6 +49,7 @@ class AccountsServiceImpleTest {
 	private IfWealthAccountBalanceDao balances;
 	private IfWealthAccountSplitDao splits;
 	private IfWealthInvestmentDao investments;
+	private IfNexusReadService nexus;
 	private AccountsServiceImple service;
 
 	@BeforeEach
@@ -55,7 +58,9 @@ class AccountsServiceImpleTest {
 		balances = mock(IfWealthAccountBalanceDao.class);
 		splits = mock(IfWealthAccountSplitDao.class);
 		investments = mock(IfWealthInvestmentDao.class);
-		service = new AccountsServiceImple(accounts, balances, splits, investments);
+		nexus = mock(IfNexusReadService.class);
+		nexusPassesThrough(nexus);
+		service = new AccountsServiceImple(accounts, balances, splits, investments, nexus);
 		RequestHeaderUtil.setUserId(USER_ID);
 		when(accounts.findAllSubtypes()).thenReturn(List.of(subtype("savings", "CASA"), subtype("fd", "INVESTMENT"), subtype("card", "LIABILITY")));
 	}
@@ -90,6 +95,41 @@ class AccountsServiceImpleTest {
 		e.setStatus(status);
 		e.setAsOf(Timestamp.valueOf("2026-11-20 10:00:00"));
 		return e;
+	}
+
+	// The nexus is not under test here: it hands the loader's result straight back, stamped with a read time.
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	private void nexusPassesThrough(IfNexusReadService nexus) {
+		org.mockito.stubbing.Answer<Object> answer = invocation -> {
+			CachedValueDto cached = new CachedValueDto();
+			cached.setData(((java.util.function.Supplier) invocation.getArgument(2)).get());
+			cached.setFetchedAt(java.sql.Timestamp.valueOf("2026-11-27 10:00:00"));
+			return cached;
+		};
+		when(nexus.read(any(), any(Class.class), any(java.util.function.Supplier.class))).thenAnswer(answer);
+		when(nexus.hardRefresh(any(), any(Class.class), any(java.util.function.Supplier.class))).thenAnswer(answer);
+	}
+
+	@Test
+	void theOverviewComesThroughTheNexusStampedWithWhenItWasReadAndWhetherItIsStale() {
+		when(accounts.findByUser(any())).thenReturn(List.of());
+		when(balances.findLatestByUser(any())).thenReturn(List.of());
+
+		AccountsOverviewDto overview = service.overview();
+
+		verify(nexus).read(org.mockito.ArgumentMatchers.eq("accounts-overview"), org.mockito.ArgumentMatchers.eq(AccountsOverviewDto.class), any());
+		assertEquals(Timestamp.valueOf("2026-11-27 10:00:00"), overview.getFetchedAt());
+		assertEquals(false, overview.isStale());
+	}
+
+	@Test
+	void theRefreshButtonAsksTheNexusForAHardRefresh() {
+		when(accounts.findByUser(any())).thenReturn(List.of());
+		when(balances.findLatestByUser(any())).thenReturn(List.of());
+
+		service.refresh();
+
+		verify(nexus).hardRefresh(org.mockito.ArgumentMatchers.eq("accounts-overview"), org.mockito.ArgumentMatchers.eq(AccountsOverviewDto.class), any());
 	}
 
 	private WealthAccountSubtypeEntity dematSubtype() {

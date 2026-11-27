@@ -30,4 +30,10 @@ public class InvestmentsServiceController implements IfInvestmentsServiceContrac
 		LOGGER.info("Entering list");
 		return responseTemplate.apires(investmentsService.list(), BaseError.Success);
 	}
+
+	@Override
+	public ResponseEntity<ApiResponse<InvestmentsDto, Void>> refresh() throws KarthiException {
+		LOGGER.info("Entering refresh");
+		return responseTemplate.apires(investmentsService.refresh(), BaseError.Success);
+	}
 }

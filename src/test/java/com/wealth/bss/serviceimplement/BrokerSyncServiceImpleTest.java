@@ -20,8 +20,6 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 
 import com.wealth.bss.common.model.dao.IfWealthAccountDao;
 import com.wealth.bss.common.model.dao.IfWealthConnectionDao;
@@ -31,11 +29,15 @@ import com.wealth.bss.common.model.entity.WealthConnectionEntity;
 import com.wealth.bss.common.model.entity.WealthHoldingEntity;
 import com.wealth.bss.config.AngelOneClient;
 import com.wealth.bss.config.AngelOneClient.Holding;
+import com.wealth.bss.nexus.service.IfNexusCacheService;
+import com.wealth.bss.nexus.service.IfNexusReadService;
+import com.wealth.bss.serviceinterface.IfThirdPartyService;
 import com.wealth.bss.config.SettingsCipher;
 import com.wealth.bss.serviceinterface.IfRequestContextService;
 import com.wealth.common.generic.BaseError;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.model.dto.admin.ProviderRequestDto;
+import com.wealth.common.model.dto.admin.ThirdPartyDto;
 
 class BrokerSyncServiceImpleTest {
 
@@ -48,12 +50,12 @@ class BrokerSyncServiceImpleTest {
 	private IfWealthInvestmentDao investments;
 	private SettingsCipher cipher;
 	private AngelOneClient angel;
-	private StringRedisTemplate redis;
-	private ValueOperations<String, String> values;
-	private ThirdPartyServiceImple thirdParty;
+	private IfThirdPartyService thirdParty;
+	private IfNexusCacheService nexusCache;
+	private IfNexusReadService nexusRead;
+	private com.wealth.bss.nexus.service.IfApiUsageService usage;
 	private BrokerSyncServiceImple service;
 
-	@SuppressWarnings("unchecked")
 	@BeforeEach
 	void setUp() {
 		context = mock(IfRequestContextService.class);
@@ -62,14 +64,21 @@ class BrokerSyncServiceImpleTest {
 		investments = mock(IfWealthInvestmentDao.class);
 		cipher = new SettingsCipher(KEY);
 		angel = spy(new AngelOneClient());
-		redis = mock(StringRedisTemplate.class);
-		values = mock(ValueOperations.class);
-		thirdParty = mock(ThirdPartyServiceImple.class);
-		when(redis.opsForValue()).thenReturn(values);
-		when(values.setIfAbsent(any(), any(), any(java.time.Duration.class))).thenReturn(true);
+		thirdParty = mock(IfThirdPartyService.class);
+		nexusCache = mock(IfNexusCacheService.class);
+		nexusRead = mock(IfNexusReadService.class);
+		ThirdPartyDto row = new ThirdPartyDto();
+		row.setProvider("angel-one");
+		when(thirdParty.list()).thenReturn(List.of(row));
+		when(nexusCache.tryLock(any(), any(java.time.Duration.class))).thenReturn(true);
 		when(connections.saveFetchResult(any())).thenAnswer(i -> i.getArgument(0));
 		when(investments.saveBrokerHoldings(any(), any(), any(), anyList())).thenReturn(new int[] { 2, 1 });
-		service = new BrokerSyncServiceImple(context, connections, accounts, investments, cipher, angel, redis, thirdParty);
+		usage = mock(com.wealth.bss.nexus.service.IfApiUsageService.class);
+		org.mockito.Mockito.doAnswer(i -> {
+			((java.util.function.BooleanSupplier) i.getArgument(1)).getAsBoolean();
+			return null;
+		}).when(usage).runJob(any(), any());
+		service = new BrokerSyncServiceImple(context, connections, accounts, investments, cipher, angel, thirdParty, nexusCache, usage, nexusRead);
 	}
 
 	private WealthConnectionEntity angelRow(boolean complete, boolean enabled, boolean autoFetch, String owner) {
@@ -164,6 +173,8 @@ class BrokerSyncServiceImpleTest {
 		assertEquals("TCS", rows.get(1).getInstrument().getSymbol());
 		assertEquals("TCS.BO", rows.get(1).getInstrument().getPriceSourceSymbol());
 
+		verify(nexusRead).evict("investments", OWNER);
+		verify(nexusRead).evict("accounts-overview", OWNER);
 		ArgumentCaptor<WealthConnectionEntity> note = ArgumentCaptor.forClass(WealthConnectionEntity.class);
 		verify(connections).saveFetchResult(note.capture());
 		assertEquals("2 holdings, 1 closed", note.getValue().getLastFetchNote());
@@ -213,18 +224,36 @@ class BrokerSyncServiceImpleTest {
 	}
 
 	@Test
-	void theDailyRunSkipsWhenAnotherInstanceHoldsTheLockButGoesAheadWhenRedisIsDown() {
+	void theDailyRunSkipsWhenTheNexusLockIsHeldAndGoesAheadWhenItIsFree() {
 		when(connections.findAll()).thenReturn(List.of(angelRow(true, true, true, OWNER)));
 		org.mockito.Mockito.doReturn(List.of()).when(angel).holdings(any(), any());
 		when(accounts.findByUser(any())).thenReturn(List.of(account("acc-1")));
 
-		when(values.setIfAbsent(any(), any(), any(java.time.Duration.class))).thenReturn(false);
+		when(nexusCache.tryLock(eq("wealth:broker-fetch:lock"), any(java.time.Duration.class))).thenReturn(false);
 		service.runDaily();
 		verify(angel, never()).holdings(any(), any());
 
-		when(values.setIfAbsent(any(), any(), any(java.time.Duration.class))).thenThrow(new IllegalStateException("redis down"));
+		when(nexusCache.tryLock(eq("wealth:broker-fetch:lock"), any(java.time.Duration.class))).thenReturn(true);
 		service.runDaily();
 		verify(angel).holdings(any(), any());
+	}
+
+	@Test
+	void theDailyRunIsCountedAsOneRunOfTheJobAndItsResultIsHonest() {
+		when(connections.findAll()).thenReturn(List.of(angelRow(true, true, true, OWNER)));
+		org.mockito.Mockito.doReturn(List.of()).when(angel).holdings(any(), any());
+		when(accounts.findByUser(any())).thenReturn(List.of(account("acc-1")));
+		ArgumentCaptor<java.util.function.BooleanSupplier> work = ArgumentCaptor.forClass(java.util.function.BooleanSupplier.class);
+
+		service.runDaily();
+		verify(usage).runJob(eq("broker-fetch"), work.capture());
+		assertTrue(work.getValue().getAsBoolean(), "a run where every row worked is a good run");
+
+		org.mockito.Mockito.doThrow(new IllegalStateException("Account blocked")).when(angel).holdings(any(), any());
+		assertEquals(false, work.getValue().getAsBoolean(), "a run with a failed row is a failed run");
+
+		when(nexusCache.tryLock(eq("wealth:broker-fetch:lock"), any(java.time.Duration.class))).thenReturn(false);
+		assertTrue(work.getValue().getAsBoolean(), "another instance holding the lock is not a failure");
 	}
 
 	@Test

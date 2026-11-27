@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -24,8 +23,12 @@ import com.wealth.bss.config.AngelOneClient.Credentials;
 import com.wealth.bss.config.AngelOneClient.Holding;
 import com.wealth.bss.config.SettingsCipher;
 import com.wealth.bss.constants.WealthServiceConstants;
+import com.wealth.bss.nexus.service.IfApiUsageService;
+import com.wealth.bss.nexus.service.IfNexusCacheService;
+import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfBrokerSyncService;
 import com.wealth.bss.serviceinterface.IfRequestContextService;
+import com.wealth.bss.serviceinterface.IfThirdPartyService;
 import com.wealth.common.generic.BaseError;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
@@ -37,8 +40,6 @@ import com.wealth.common.utils.generic.RequestHeaderUtil;
 public class BrokerSyncServiceImple implements IfBrokerSyncService {
 
 	private static final KarthiLogger LOGGER = new KarthiLogger(BrokerSyncServiceImple.class);
-	private static final String EQUITY_SUFFIX = "-EQ";
-	private static final String ASSET_CLASS = "indian_equity";
 
 	private final IfRequestContextService requestContextService;
 	private final IfWealthConnectionDao connectionDao;
@@ -46,19 +47,24 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 	private final IfWealthInvestmentDao investmentDao;
 	private final SettingsCipher cipher;
 	private final AngelOneClient angelOne;
-	private final StringRedisTemplate redis;
-	private final ThirdPartyServiceImple thirdParty;
+	private final IfThirdPartyService thirdPartyService;
+	private final IfNexusCacheService nexusCache;
+	private final IfNexusReadService nexusReadService;
+	private final IfApiUsageService usage;
 
 	public BrokerSyncServiceImple(IfRequestContextService requestContextService, IfWealthConnectionDao connectionDao, IfWealthAccountDao accountDao,
-			IfWealthInvestmentDao investmentDao, SettingsCipher cipher, AngelOneClient angelOne, StringRedisTemplate redis, ThirdPartyServiceImple thirdParty) {
+			IfWealthInvestmentDao investmentDao, SettingsCipher cipher, AngelOneClient angelOne, IfThirdPartyService thirdPartyService,
+			IfNexusCacheService nexusCache, IfApiUsageService usage, IfNexusReadService nexusReadService) {
+		this.nexusCache = nexusCache;
+		this.nexusReadService = nexusReadService;
+		this.usage = usage;
 		this.requestContextService = requestContextService;
 		this.connectionDao = connectionDao;
 		this.accountDao = accountDao;
 		this.investmentDao = investmentDao;
 		this.cipher = cipher;
 		this.angelOne = angelOne;
-		this.redis = redis;
-		this.thirdParty = thirdParty;
+		this.thirdPartyService = thirdPartyService;
 	}
 
 	@Override
@@ -76,7 +82,9 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 		try {
 			String note = sync(row, owner, WealthServiceConstants.ACTOR_OWNER);
 			LOGGER.info(WealthServiceConstants.EXITING + methodName + " | " + note);
-			return thirdParty.toDto(noted(row, note, WealthServiceConstants.ACTOR_OWNER));
+			noted(row, note, WealthServiceConstants.ACTOR_OWNER);
+			return thirdPartyService.list().stream().filter(dto -> provider.equals(dto.getProvider())).findFirst()
+					.orElseThrow(() -> new KarthiException(BaseError.PROVIDER_NOT_FOUND));
 		} catch (KarthiException e) {
 			if (BaseError.BROKER_FETCH_FAILED.equals(e.getMessage())) {
 				noted(row, "Failed: " + failureReason(e), WealthServiceConstants.ACTOR_OWNER);
@@ -85,18 +93,24 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 		}
 	}
 
-	// 18:30 IST on weekdays. A Redis lock keeps a second instance from running it as well; when Redis is down the run goes ahead (it is safe to repeat).
+	// 18:30 IST on weekdays. A Redis lock keeps a second instance from running it as well (the internal lock when Redis is off or down; the run is safe to repeat).
 	@Override
 	@Scheduled(cron = WealthServiceConstants.BROKER_FETCH_CRON, zone = WealthServiceConstants.BROKER_ZONE)
 	public void runDaily() {
+		usage.runJob(WealthServiceConstants.USAGE_JOB_BROKER_FETCH, this::dailyRun);
+	}
+
+	// The daily fetch itself, counted as one run of the job "broker-fetch". True when it worked: every row was fetched, or another instance had the lock.
+	private boolean dailyRun() {
 		String methodName = "runDaily";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
 		if (!lock()) {
 			LOGGER.info("Daily broker fetch skipped: another instance has it");
-			return;
+			return true;
 		}
 		List<WealthConnectionEntity> rows = new ArrayList<>(connectionDao.findAll().stream().filter(r -> WealthServiceConstants.BROKER_ANGEL_ONE.equals(r.getProvider())
 				&& r.isEnabled() && r.isAutoFetch() && r.getOwnerUserId() != null).toList());
+		boolean allWorked = true;
 		for (WealthConnectionEntity row : rows) {
 			String note;
 			try {
@@ -107,18 +121,16 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 				LOGGER.warn("Daily broker fetch failed: " + e.getClass().getSimpleName());
 				note = "Failed: the fetch could not be saved";
 			}
+			allWorked = allWorked && !note.startsWith("Failed");
 			noted(row, note, WealthServiceConstants.ACTOR_CRON);
 		}
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
+		return allWorked;
 	}
 
+	// The nexus lock is in Redis while it answers, otherwise internal (rules 10a); either way a second run in the same window is refused.
 	private boolean lock() {
-		try {
-			return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(WealthServiceConstants.BROKER_LOCK, "1", Duration.ofMinutes(WealthServiceConstants.BROKER_LOCK_MINUTES)));
-		} catch (RuntimeException e) {
-			LOGGER.warn("Daily broker fetch lock unavailable; running without it");
-			return true;
-		}
+		return nexusCache.tryLock(WealthServiceConstants.BROKER_LOCK, Duration.ofMinutes(WealthServiceConstants.BROKER_LOCK_MINUTES));
 	}
 
 	// Reads the holdings with the saved login and writes them to the owner's demat account; returns the note, e.g. "12 holdings, 1 closed".
@@ -143,6 +155,8 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 			}
 		}
 		int[] result = investmentDao.saveBrokerHoldings(actor, accountId, WealthServiceConstants.BROKER_PRICE_SOURCE, holdings);
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_INVESTMENTS, ownerUserId);
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_ACCOUNTS, ownerUserId);
 		return result[0] + (result[0] == 1 ? " holding" : " holdings") + ", " + result[1] + " closed";
 	}
 
@@ -159,7 +173,7 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 					entity.setBankName(WealthServiceConstants.BROKER_BANK_NAME);
 					entity.setAccountName(WealthServiceConstants.BROKER_ACCOUNT_NAME);
 					entity.setSubtypeCode(WealthServiceConstants.BROKER_SUBTYPE);
-					entity.setCurrency("INR");
+					entity.setCurrency(WealthServiceConstants.CURRENCY_INR);
 					WealthAccountEntity created = accountDao.insert(entity);
 					return created == null ? accountDao.findByUser(lookup).stream().filter(a -> WealthServiceConstants.BROKER_ACCOUNT_KEY.equals(a.getAccountKey()))
 							.findFirst().orElseThrow(() -> new KarthiException(BaseError.WEALTH_ACCOUNT_NOT_FOUND)).getId() : created.getId();
@@ -169,17 +183,17 @@ public class BrokerSyncServiceImple implements IfBrokerSyncService {
 	// NSE and BSE symbols carry the old-app Yahoo form (LT.NS, LT.BO) so the price job can pick them up; an existing instrument is never changed.
 	private WealthHoldingEntity holding(Holding item, Timestamp now) {
 		String symbol = item.symbol().toUpperCase(Locale.ROOT);
-		if (symbol.endsWith(EQUITY_SUFFIX)) {
-			symbol = symbol.substring(0, symbol.length() - EQUITY_SUFFIX.length());
+		if (symbol.endsWith(WealthServiceConstants.BROKER_EQUITY_SUFFIX)) {
+			symbol = symbol.substring(0, symbol.length() - WealthServiceConstants.BROKER_EQUITY_SUFFIX.length());
 		}
 		WealthInstrumentEntity share = new WealthInstrumentEntity();
-		share.setAssetClass(ASSET_CLASS);
+		share.setAssetClass(WealthServiceConstants.INSTRUMENT_CLASS_INDIAN_EQUITY);
 		share.setSymbol(symbol);
 		share.setName(symbol);
-		share.setCurrency("INR");
-		share.setUnit("share");
-		share.setPriceSource("yahoo");
-		share.setPriceSourceSymbol(symbol + ("BSE".equalsIgnoreCase(item.exchange()) ? ".BO" : ".NS"));
+		share.setCurrency(WealthServiceConstants.CURRENCY_INR);
+		share.setUnit(WealthServiceConstants.INSTRUMENT_UNIT_SHARE);
+		share.setPriceSource(WealthServiceConstants.PRICE_SOURCE_YAHOO);
+		share.setPriceSourceSymbol(symbol + (WealthServiceConstants.EXCHANGE_BSE.equalsIgnoreCase(item.exchange()) ? WealthServiceConstants.YAHOO_SUFFIX_BSE : WealthServiceConstants.YAHOO_SUFFIX_NSE));
 		share.setIsin(blankToNull(item.isin()));
 		share.setExchange(blankToNull(item.exchange()));
 		WealthHoldingEntity holding = new WealthHoldingEntity();

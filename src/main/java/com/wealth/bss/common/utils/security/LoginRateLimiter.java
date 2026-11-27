@@ -2,54 +2,33 @@ package com.wealth.bss.common.utils.security;
 
 import java.time.Duration;
 
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
-import com.wealth.common.logger.KarthiLogger;
+import com.wealth.bss.nexus.service.IfNexusCacheService;
 
-// Fixed-window counters in Redis, same keys as the Node app (wealth:rl:*). No local copy: if Redis fails the check is skipped, as in Node.
+// Fixed-window counters, same keys as the Node app (wealth:rl:*). They go through the nexus cache: Redis while it answers, the internal counters otherwise,
+// so the limits still apply and are never dropped (rules 10 and 10a).
 @Component
 public class LoginRateLimiter {
 
-	private static final KarthiLogger LOGGER = new KarthiLogger(LoginRateLimiter.class);
 	private static final String PREFIX = "wealth:rl:";
 
-	private final StringRedisTemplate redis;
+	private final IfNexusCacheService nexusCache;
 
-	public LoginRateLimiter(StringRedisTemplate redis) {
-		this.redis = redis;
+	public LoginRateLimiter(IfNexusCacheService nexusCache) {
+		this.nexusCache = nexusCache;
 	}
 
 	public long count(String key) {
-		try {
-			String value = redis.opsForValue().get(PREFIX + key);
-			return value == null ? 0 : Long.parseLong(value);
-		} catch (RuntimeException e) {
-			LOGGER.warn("Rate limit read failed: " + e.getClass().getSimpleName());
-			return 0;
-		}
+		return nexusCache.count(PREFIX + key);
 	}
 
 	// Counts one attempt; returns false once the limit is exceeded inside the window.
 	public boolean attempt(String key, long limit, long windowSeconds) {
-		try {
-			String redisKey = PREFIX + key;
-			Long n = redis.opsForValue().increment(redisKey);
-			if (n != null && n == 1L) {
-				redis.expire(redisKey, Duration.ofSeconds(windowSeconds));
-			}
-			return n == null || n <= limit;
-		} catch (RuntimeException e) {
-			LOGGER.warn("Rate limit write failed: " + e.getClass().getSimpleName());
-			return true;
-		}
+		return nexusCache.increment(PREFIX + key, Duration.ofSeconds(windowSeconds)) <= limit;
 	}
 
 	public void reset(String key) {
-		try {
-			redis.delete(PREFIX + key);
-		} catch (RuntimeException e) {
-			LOGGER.warn("Rate limit reset failed: " + e.getClass().getSimpleName());
-		}
+		nexusCache.remove(PREFIX + key);
 	}
 }

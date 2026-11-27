@@ -86,6 +86,22 @@ class ConnectionTesterTest {
 	}
 
 	@Test
+	void everyTestConnectionIsCountedOnceAsACallToThatProvider() {
+		com.wealth.bss.nexus.service.IfApiUsageService usage = org.mockito.Mockito.mock(com.wealth.bss.nexus.service.IfApiUsageService.class);
+		ConnectionTester counted = new ConnectionTester(usage);
+
+		answer = 200;
+		assertTrue(counted.test("my-bank", base, null));
+		org.mockito.Mockito.verify(usage).recordExternal(org.mockito.ArgumentMatchers.eq("my-bank"), org.mockito.ArgumentMatchers.eq("test"),
+				org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.anyLong());
+
+		answer = 500;
+		assertFalse(counted.test("my-bank", base, null));
+		org.mockito.Mockito.verify(usage).recordExternal(org.mockito.ArgumentMatchers.eq("my-bank"), org.mockito.ArgumentMatchers.eq("test"),
+				org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.anyLong());
+	}
+
+	@Test
 	void anAddressNobodyAnswersIsAFailureNotAnError() {
 		assertFalse(tester.test("my-bank", "http://127.0.0.1:9", null));
 		assertFalse(tester.test("my-bank", "http://no-such-host.invalid", null));

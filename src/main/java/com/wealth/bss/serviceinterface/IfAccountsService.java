@@ -15,6 +15,9 @@ public interface IfAccountsService {
 	// Active accounts grouped by bank, each with its latest balance, plus totals for the user and for each bank.
 	AccountsOverviewDto overview();
 
+	// The dashboard Refresh button: asks for a fresh read at once (at most every few seconds per user) and returns what is cached now; fetchedAt tells when it was read.
+	AccountsOverviewDto refresh();
+
 	// One account with its balance history and splits; WEALTH_ACCOUNT_NOT_FOUND when it is not the caller's.
 	AccountDetailDto detail(IdRequestDto request);
 

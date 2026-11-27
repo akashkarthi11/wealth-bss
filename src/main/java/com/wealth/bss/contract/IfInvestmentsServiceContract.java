@@ -15,4 +15,7 @@ public interface IfInvestmentsServiceContract {
 
 	@PostMapping(WealthServiceConstants.INVESTMENTS_LIST)
 	ResponseEntity<ApiResponse<InvestmentsDto, Void>> list() throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.INVESTMENTS_REFRESH)
+	ResponseEntity<ApiResponse<InvestmentsDto, Void>> refresh() throws KarthiException;
 }

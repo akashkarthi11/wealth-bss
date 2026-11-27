@@ -47,6 +47,8 @@ class EnvironmentServiceImpleTest {
 		when(redis.current()).thenReturn("redis.example.com:6379");
 		when(redis.defaultAddress()).thenReturn("redis.example.com:6379");
 		when(redis.isConfigured()).thenReturn(true);
+		when(redis.isEnabled()).thenReturn(true);
+		when(kafka.isEnabled()).thenReturn(true);
 		when(kafka.current()).thenReturn("");
 		when(kafka.defaultServers()).thenReturn("");
 	}
@@ -72,6 +74,86 @@ class EnvironmentServiceImpleTest {
 		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(service::kafkaReset));
 		verify(redis, never()).set(anyString(), anyInt(), any(), any());
 		verify(kafka, never()).set(anyString(), any(), any());
+	}
+
+	private ConnectionRequestDto active(Boolean enabled) {
+		ConnectionRequestDto r = new ConnectionRequestDto();
+		r.setEnabled(enabled);
+		return r;
+	}
+
+	@Test
+	void theActiveSwitchIsForAnAdminOnly() {
+		doThrow(new KarthiException(BaseError.ADMIN_ONLY_ACTION)).when(context).requireAdmin();
+		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(() -> service.redisActive(active(false))));
+		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(() -> service.kafkaActive(active(false))));
+		verify(redis, never()).setEnabled(org.mockito.ArgumentMatchers.anyBoolean());
+		verify(kafka, never()).setEnabled(org.mockito.ArgumentMatchers.anyBoolean());
+	}
+
+	@Test
+	void theActiveSwitchNeedsTrueOrFalse() {
+		assertEquals(BaseError.PROVIDER_INVALID, codeOf(() -> service.redisActive(active(null))));
+		assertEquals(BaseError.PROVIDER_INVALID, codeOf(() -> service.kafkaActive(null)));
+		verify(redis, never()).setEnabled(org.mockito.ArgumentMatchers.anyBoolean());
+	}
+
+	@Test
+	void switchingRedisOffReportsOffWithoutCheckingTheServer() {
+		when(redis.isEnabled()).thenReturn(false);
+		ConnectionDto dto = service.redisActive(active(false));
+		verify(redis).setEnabled(false);
+		assertEquals("OFF", dto.getStatus());
+		assertEquals(false, dto.isEnabled());
+		verify(redis, never()).isUp(anyString(), anyInt(), any(), any());
+	}
+
+	@Test
+	void switchingRedisOnChecksTheServerAgain() {
+		when(redis.isUp("redis.example.com", 6379, null, null)).thenReturn(true);
+		ConnectionDto dto = service.redisActive(active(true));
+		verify(redis).setEnabled(true);
+		assertEquals("UP", dto.getStatus());
+		assertTrue(dto.isEnabled());
+	}
+
+	private ConnectionRequestDto refreshTime(Integer seconds) {
+		ConnectionRequestDto request = new ConnectionRequestDto();
+		request.setRefreshSeconds(seconds);
+		return request;
+	}
+
+	@Test
+	void theRefreshTimeIsForAnAdminAndBetweenFiveAndSixtySeconds() {
+		when(kafka.refreshSeconds()).thenReturn(30);
+
+		assertEquals(30, service.kafkaRefreshTime(refreshTime(30)).getRefreshSeconds());
+		verify(kafka).setRefreshSeconds(30);
+		service.kafkaRefreshTime(refreshTime(5));
+		service.kafkaRefreshTime(refreshTime(60));
+		for (Integer bad : new Integer[] { 4, 61, 0, -1, null }) {
+			assertEquals(BaseError.REFRESH_TIME_INVALID, codeOf(() -> service.kafkaRefreshTime(refreshTime(bad))), String.valueOf(bad));
+		}
+		assertEquals(BaseError.REFRESH_TIME_INVALID, codeOf(() -> service.kafkaRefreshTime(null)));
+
+		doThrow(new KarthiException(BaseError.ADMIN_ONLY_ACTION)).when(context).requireAdmin();
+		assertEquals(BaseError.ADMIN_ONLY_ACTION, codeOf(() -> service.kafkaRefreshTime(refreshTime(20))));
+		verify(kafka, never()).setRefreshSeconds(20);
+	}
+
+	@Test
+	void switchingKafkaOffReportsOffAndOnReportsTheLiveStatus() {
+		when(kafka.isEnabled()).thenReturn(false);
+		assertEquals("OFF", service.kafkaActive(active(false)).getStatus());
+		verify(kafka).setEnabled(false);
+		verify(kafka, never()).isUp(anyString(), any(), any());
+
+		when(kafka.isEnabled()).thenReturn(true);
+		when(kafka.current()).thenReturn("k.example.com:9092");
+		when(kafka.isConfigured()).thenReturn(true);
+		when(kafka.isUp("k.example.com:9092", null, null)).thenReturn(true);
+		assertEquals("UP", service.kafkaActive(active(true)).getStatus());
+		verify(kafka).setEnabled(true);
 	}
 
 	@Test

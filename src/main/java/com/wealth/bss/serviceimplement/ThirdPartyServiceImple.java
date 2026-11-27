@@ -172,7 +172,7 @@ public class ThirdPartyServiceImple implements IfThirdPartyService {
 		return address.length() <= WealthServiceConstants.ORIGIN_MAX_LENGTH && matcher.matches() && !matcher.group(1).startsWith(WealthServiceConstants.LINK_LOCAL_PREFIX);
 	}
 
-	ThirdPartyDto toDto(WealthConnectionEntity row) {
+	private ThirdPartyDto toDto(WealthConnectionEntity row) {
 		ThirdPartyDto dto = new ThirdPartyDto();
 		dto.setProvider(row.getProvider());
 		dto.setLabel(row.getLabel());

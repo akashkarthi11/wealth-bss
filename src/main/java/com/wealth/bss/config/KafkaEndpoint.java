@@ -8,6 +8,7 @@ import org.apache.kafka.clients.admin.AdminClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.common.logger.KarthiLogger;
 
 // The Kafka brokers, user and password the BSS will use. The deployed ones come from the environment (KAFKA_BOOTSTRAP_SERVERS, KAFKA_USERNAME,
@@ -23,6 +24,10 @@ public class KafkaEndpoint {
 	private volatile String overrideServers;
 	private volatile String overrideUsername;
 	private volatile String overridePassword;
+	// The Active / Inactive switch. Inactive: the BSS does not connect to Kafka. Kept in memory; a restart turns it on.
+	private volatile boolean enabled = true;
+	// After this many seconds a cached read is stale and is refreshed (the nexus, rules 10). Kept in memory; a restart returns to the default.
+	private volatile int refreshSeconds = WealthServiceConstants.NEXUS_REFRESH_DEFAULT_SECONDS;
 
 	public KafkaEndpoint(@Value("${KAFKA_BOOTSTRAP_SERVERS:}") String bootstrapServers) {
 		this.defaultServers = bootstrapServers == null ? "" : bootstrapServers.trim();
@@ -30,6 +35,24 @@ public class KafkaEndpoint {
 
 	public boolean isConfigured() {
 		return !current().isEmpty();
+	}
+
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled) {
+		this.enabled = enabled;
+		LOGGER.info("Kafka switched " + (enabled ? "on" : "off") + " by an admin");
+	}
+
+	public int refreshSeconds() {
+		return refreshSeconds;
+	}
+
+	public void setRefreshSeconds(int seconds) {
+		this.refreshSeconds = seconds;
+		LOGGER.info("Data refresh time set to " + seconds + " s by an admin");
 	}
 
 	public String defaultServers() {

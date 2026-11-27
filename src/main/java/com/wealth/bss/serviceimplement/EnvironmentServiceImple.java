@@ -83,6 +83,40 @@ public class EnvironmentServiceImple implements IfEnvironmentService {
 	}
 
 	@Override
+	public ConnectionDto redisActive(ConnectionRequestDto request) {
+		String methodName = "redisActive";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		requestContextService.requireAdmin();
+		redis.setEnabled(switchValue(request));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return redisInfo();
+	}
+
+	@Override
+	public ConnectionDto kafkaActive(ConnectionRequestDto request) {
+		String methodName = "kafkaActive";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		requestContextService.requireAdmin();
+		kafka.setEnabled(switchValue(request));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return kafkaInfo();
+	}
+
+	@Override
+	public ConnectionDto kafkaRefreshTime(ConnectionRequestDto request) {
+		String methodName = "kafkaRefreshTime";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		requestContextService.requireAdmin();
+		Integer seconds = request == null ? null : request.getRefreshSeconds();
+		if (seconds == null || seconds < WealthServiceConstants.NEXUS_REFRESH_MIN_SECONDS || seconds > WealthServiceConstants.NEXUS_REFRESH_MAX_SECONDS) {
+			throw new KarthiException(BaseError.REFRESH_TIME_INVALID);
+		}
+		kafka.setRefreshSeconds(seconds);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return kafkaInfo();
+	}
+
+	@Override
 	public ConnectionDto kafkaGet() {
 		requestContextService.requireAdmin();
 		return kafkaInfo();
@@ -207,7 +241,10 @@ public class EnvironmentServiceImple implements IfEnvironmentService {
 		dto.setCustomised(redis.isCustomised());
 		dto.setUsername(redis.username());
 		dto.setPasswordSet(redis.isPasswordSet());
-		if (!redis.isConfigured()) {
+		dto.setEnabled(redis.isEnabled());
+		if (!redis.isEnabled()) {
+			dto.setStatus(WealthServiceConstants.STATUS_OFF);
+		} else if (!redis.isConfigured()) {
 			dto.setStatus(WealthServiceConstants.STATUS_NOT_CONFIGURED);
 		} else {
 			Matcher now = HOST_PORT.matcher(dto.getUrl());
@@ -224,9 +261,20 @@ public class EnvironmentServiceImple implements IfEnvironmentService {
 		dto.setCustomised(kafka.isCustomised());
 		dto.setUsername(kafka.username());
 		dto.setPasswordSet(kafka.isPasswordSet());
-		dto.setStatus(!kafka.isConfigured() ? WealthServiceConstants.STATUS_NOT_CONFIGURED
+		dto.setEnabled(kafka.isEnabled());
+		dto.setRefreshSeconds(kafka.refreshSeconds());
+		dto.setStatus(!kafka.isEnabled() ? WealthServiceConstants.STATUS_OFF
+				: !kafka.isConfigured() ? WealthServiceConstants.STATUS_NOT_CONFIGURED
 				: kafka.isUp(dto.getUrl(), null, null) ? WealthServiceConstants.STATUS_UP : WealthServiceConstants.STATUS_DOWN);
 		return dto;
+	}
+
+	// The Active / Inactive switch: the request must say true or false.
+	private boolean switchValue(ConnectionRequestDto request) {
+		if (request == null || request.getEnabled() == null) {
+			throw new KarthiException(BaseError.PROVIDER_INVALID);
+		}
+		return request.getEnabled();
 	}
 
 	// Empty means keep what is set now (null); too long or with hidden characters is refused.

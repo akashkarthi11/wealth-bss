@@ -39,6 +39,12 @@ public class AccountsServiceController implements IfAccountsServiceContract {
 	}
 
 	@Override
+	public ResponseEntity<ApiResponse<AccountsOverviewDto, Void>> refresh() throws KarthiException {
+		LOGGER.info("Entering refresh");
+		return responseTemplate.apires(accountsService.refresh(), BaseError.Success);
+	}
+
+	@Override
 	public ResponseEntity<ApiResponse<AccountDetailDto, Void>> detail(IdRequestDto request) throws KarthiException {
 		LOGGER.info("Entering detail");
 		return responseTemplate.apires(accountsService.detail(request), BaseError.Success);

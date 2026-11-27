@@ -24,6 +24,9 @@ public interface IfAccountsServiceContract {
 	@PostMapping(WealthServiceConstants.ACCOUNTS_LIST)
 	ResponseEntity<ApiResponse<AccountsOverviewDto, Void>> list() throws KarthiException;
 
+	@PostMapping(WealthServiceConstants.ACCOUNTS_REFRESH)
+	ResponseEntity<ApiResponse<AccountsOverviewDto, Void>> refresh() throws KarthiException;
+
 	@PostMapping(WealthServiceConstants.ACCOUNTS_DETAIL)
 	ResponseEntity<ApiResponse<AccountDetailDto, Void>> detail(@RequestBody IdRequestDto request) throws KarthiException;
 

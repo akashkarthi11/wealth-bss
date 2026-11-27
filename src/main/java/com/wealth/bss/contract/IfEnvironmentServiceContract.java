@@ -24,6 +24,15 @@ public interface IfEnvironmentServiceContract {
 	@PostMapping(WealthServiceConstants.ENV_REDIS_RESET)
 	ResponseEntity<ApiResponse<ConnectionDto, Void>> redisReset() throws KarthiException;
 
+	@PostMapping(WealthServiceConstants.ENV_REDIS_ACTIVE)
+	ResponseEntity<ApiResponse<ConnectionDto, Void>> redisActive(@RequestBody ConnectionRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ENV_KAFKA_ACTIVE)
+	ResponseEntity<ApiResponse<ConnectionDto, Void>> kafkaActive(@RequestBody ConnectionRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ENV_KAFKA_REFRESH)
+	ResponseEntity<ApiResponse<ConnectionDto, Void>> kafkaRefreshTime(@RequestBody ConnectionRequestDto request) throws KarthiException;
+
 	@PostMapping(WealthServiceConstants.ENV_KAFKA_GET)
 	ResponseEntity<ApiResponse<ConnectionDto, Void>> kafkaGet() throws KarthiException;
 

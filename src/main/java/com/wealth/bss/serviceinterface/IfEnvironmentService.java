@@ -14,12 +14,21 @@ public interface IfEnvironmentService {
 
 	ConnectionDto redisReset();
 
+	// The Active / Inactive switch (request.enabled). Inactive: the cache, the login limits and the sync lock skip Redis. Kept in memory.
+	ConnectionDto redisActive(ConnectionRequestDto request);
+
 	ConnectionDto kafkaGet();
 
 	// request.url holds one host:port or a comma-separated list of them.
 	ConnectionDto kafkaUpdate(ConnectionRequestDto request);
 
 	ConnectionDto kafkaReset();
+
+	// The Active / Inactive switch (request.enabled). Inactive: the BSS does not connect to Kafka. Kept in memory.
+	ConnectionDto kafkaActive(ConnectionRequestDto request);
+
+	// request.refreshSeconds, 5 to 60 (REFRESH_TIME_INVALID otherwise): after this age a cached read is stale and is refreshed. Kept in memory.
+	ConnectionDto kafkaRefreshTime(ConnectionRequestDto request);
 
 	// request.url holds host:port; the database name and options stay as deployed.
 	ConnectionDto postgresGet();

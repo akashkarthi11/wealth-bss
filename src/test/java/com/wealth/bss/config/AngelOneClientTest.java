@@ -145,4 +145,25 @@ class AngelOneClientTest {
 		assertFalse(new Credentials(null, "c", "p", "s", "m").complete());
 		assertFalse(new Credentials("k", "c", "p", " ", "m").complete());
 	}
+
+	@Test
+	void everyCallToAngelOneIsCountedOnceWithItsResult() {
+		com.wealth.bss.nexus.service.IfApiUsageService usage = org.mockito.Mockito.mock(com.wealth.bss.nexus.service.IfApiUsageService.class);
+		AngelOneClient counted = new AngelOneClient(usage);
+
+		counted.holdings(base, credentials);
+		org.mockito.Mockito.verify(usage).recordExternal(org.mockito.ArgumentMatchers.eq("angel-one"), org.mockito.ArgumentMatchers.eq("login"),
+				org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.anyLong());
+		org.mockito.Mockito.verify(usage).recordExternal(org.mockito.ArgumentMatchers.eq("angel-one"), org.mockito.ArgumentMatchers.eq("holdings"),
+				org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.anyLong());
+
+		loginAnswer = "{\"status\":false,\"message\":\"Invalid totp\"}";
+		assertThrows(IllegalStateException.class, () -> counted.login(base, credentials));
+		org.mockito.Mockito.verify(usage).recordExternal(org.mockito.ArgumentMatchers.eq("angel-one"), org.mockito.ArgumentMatchers.eq("login"),
+				org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.anyLong());
+
+		assertThrows(IllegalStateException.class, () -> counted.login("http://127.0.0.1:9", credentials));
+		org.mockito.Mockito.verify(usage, org.mockito.Mockito.times(2)).recordExternal(org.mockito.ArgumentMatchers.eq("angel-one"),
+				org.mockito.ArgumentMatchers.eq("login"), org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.anyLong());
+	}
 }

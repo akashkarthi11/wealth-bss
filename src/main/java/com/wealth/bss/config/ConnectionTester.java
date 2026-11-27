@@ -8,8 +8,10 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import com.wealth.bss.nexus.service.IfApiUsageService;
 import com.wealth.common.logger.KarthiLogger;
 
 // Test connection for a third-party service: one small request to its address, with the key the way that service wants it. The answer is only
@@ -22,10 +24,31 @@ public class ConnectionTester {
 	private static final int SERVER_ERROR = 500;
 
 	private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(SECONDS)).followRedirects(HttpClient.Redirect.NEVER).build();
+	// Counts every Test connection as one outgoing call to that provider (API usage). Null in a test that does not need counting.
+	private final IfApiUsageService usage;
+
+	public ConnectionTester() {
+		this(null);
+	}
+
+	@Autowired
+	public ConnectionTester(IfApiUsageService usage) {
+		this.usage = usage;
+	}
+
+	// One Test connection, counted once with its result and time.
+	public boolean test(String provider, String baseUrl, String apiKey) {
+		long started = System.nanoTime();
+		boolean worked = probe(provider, baseUrl, apiKey);
+		if (usage != null) {
+			usage.recordExternal(provider, "test", worked, (System.nanoTime() - started) / 1_000_000L);
+		}
+		return worked;
+	}
 
 	// apiKey may be null. Gemini, Anthropic and Yahoo are called on a cheap authenticated (or public) path and must answer 2xx. Any other provider,
 	// and Angel One (its sign-in needs more than a key), only has to answer, with its key as a bearer token when one is set.
-	public boolean test(String provider, String baseUrl, String apiKey) {
+	private boolean probe(String provider, String baseUrl, String apiKey) {
 		String base = baseUrl.replaceAll("/+$", "");
 		boolean hasKey = apiKey != null && !apiKey.isEmpty();
 		try {

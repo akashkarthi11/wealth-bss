@@ -22,12 +22,14 @@ import com.wealth.bss.common.model.entity.WealthAccountSplitEntity;
 import com.wealth.bss.common.model.entity.WealthAccountSplitMoveEntity;
 import com.wealth.bss.common.model.entity.WealthAccountSubtypeEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
+import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfAccountsService;
 import com.wealth.common.assembler.GenericAssembler;
 import com.wealth.common.generic.BaseError;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
 import com.wealth.common.model.dto.AccountIdRequestDto;
+import com.wealth.common.model.dto.CachedValueDto;
 import com.wealth.common.model.dto.IdRequestDto;
 import com.wealth.common.model.dto.account.AccountBalanceDto;
 import com.wealth.common.model.dto.account.AccountDetailDto;
@@ -51,17 +53,36 @@ public class AccountsServiceImple implements IfAccountsService {
 	private final IfWealthAccountBalanceDao wealthAccountBalanceDao;
 	private final IfWealthAccountSplitDao wealthAccountSplitDao;
 	private final IfWealthInvestmentDao wealthInvestmentDao;
+	private final IfNexusReadService nexusReadService;
 
 	public AccountsServiceImple(IfWealthAccountDao wealthAccountDao, IfWealthAccountBalanceDao wealthAccountBalanceDao,
-			IfWealthAccountSplitDao wealthAccountSplitDao, IfWealthInvestmentDao wealthInvestmentDao) {
+			IfWealthAccountSplitDao wealthAccountSplitDao, IfWealthInvestmentDao wealthInvestmentDao, IfNexusReadService nexusReadService) {
+		this.nexusReadService = nexusReadService;
 		this.wealthAccountDao = wealthAccountDao;
 		this.wealthAccountBalanceDao = wealthAccountBalanceDao;
 		this.wealthAccountSplitDao = wealthAccountSplitDao;
 		this.wealthInvestmentDao = wealthInvestmentDao;
 	}
 
+	// The overview is not computed on every call: the nexus returns it from its cache and refreshes it when it is older than the refresh time (rules 10).
 	@Override
 	public AccountsOverviewDto overview() {
+		return stamp(nexusReadService.read(WealthServiceConstants.NEXUS_READ_ACCOUNTS, AccountsOverviewDto.class, this::buildOverview));
+	}
+
+	@Override
+	public AccountsOverviewDto refresh() {
+		return stamp(nexusReadService.hardRefresh(WealthServiceConstants.NEXUS_READ_ACCOUNTS, AccountsOverviewDto.class, this::buildOverview));
+	}
+
+	private AccountsOverviewDto stamp(CachedValueDto<AccountsOverviewDto> cached) {
+		AccountsOverviewDto overview = cached.getData();
+		overview.setFetchedAt(cached.getFetchedAt());
+		overview.setStale(cached.isStale());
+		return overview;
+	}
+
+	private AccountsOverviewDto buildOverview() {
 		String methodName = "overview";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
 		PaginationDto paginationDto = caller();

@@ -45,6 +45,24 @@ public class EnvironmentServiceController implements IfEnvironmentServiceContrac
 	}
 
 	@Override
+	public ResponseEntity<ApiResponse<ConnectionDto, Void>> redisActive(ConnectionRequestDto request) throws KarthiException {
+		LOGGER.info("Entering redisActive");
+		return responseTemplate.apires(environmentService.redisActive(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<ConnectionDto, Void>> kafkaRefreshTime(ConnectionRequestDto request) throws KarthiException {
+		LOGGER.info("Entering kafkaRefreshTime");
+		return responseTemplate.apires(environmentService.kafkaRefreshTime(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<ConnectionDto, Void>> kafkaActive(ConnectionRequestDto request) throws KarthiException {
+		LOGGER.info("Entering kafkaActive");
+		return responseTemplate.apires(environmentService.kafkaActive(request), BaseError.Success);
+	}
+
+	@Override
 	public ResponseEntity<ApiResponse<ConnectionDto, Void>> kafkaGet() throws KarthiException {
 		LOGGER.info("Entering kafkaGet");
 		return responseTemplate.apires(environmentService.kafkaGet(), BaseError.Success);

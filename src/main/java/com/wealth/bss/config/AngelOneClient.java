@@ -18,11 +18,13 @@ import java.util.Map;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wealth.bss.nexus.service.IfApiUsageService;
 import com.wealth.common.logger.KarthiLogger;
 
 // Angel One SmartAPI, read only: sign in (client code, PIN and a one-time code made from the TOTP secret) and read the holdings. The same two calls the old
@@ -31,6 +33,7 @@ import com.wealth.common.logger.KarthiLogger;
 public class AngelOneClient {
 
 	private static final KarthiLogger LOGGER = new KarthiLogger(AngelOneClient.class);
+	private static final String PROVIDER = "angel-one";
 	private static final String LOGIN = "/rest/auth/angelbroking/user/v1/loginByPassword";
 	private static final String HOLDINGS = "/rest/secure/angelbroking/portfolio/v1/getAllHolding";
 	private static final String BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -59,6 +62,17 @@ public class AngelOneClient {
 
 	private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(SECONDS)).followRedirects(HttpClient.Redirect.NEVER).build();
 	private final ObjectMapper mapper = new ObjectMapper();
+	// Counts every call to Angel One (rules: API usage). Null in a test that does not need counting.
+	private final IfApiUsageService usage;
+
+	public AngelOneClient() {
+		this(null);
+	}
+
+	@Autowired
+	public AngelOneClient(IfApiUsageService usage) {
+		this.usage = usage;
+	}
 
 	// The block of login values (JSON of EXTRA_KEYS) as a map; empty when there is none or it cannot be read.
 	public Map<String, String> readExtra(String json) {
@@ -90,7 +104,7 @@ public class AngelOneClient {
 		try {
 			String body = mapper.writeValueAsString(java.util.Map.of("clientcode", credentials.clientCode(), "password", credentials.pin(), "totp",
 					totp(credentials.totpSecret(), System.currentTimeMillis() / 1000)));
-			JsonNode answer = send(request(baseUrl + LOGIN, credentials).POST(HttpRequest.BodyPublishers.ofString(body)).build());
+			JsonNode answer = send("login", request(baseUrl + LOGIN, credentials).POST(HttpRequest.BodyPublishers.ofString(body)).build());
 			String token = answer.path("data").path("jwtToken").asText("");
 			if (token.isEmpty()) {
 				throw new IllegalStateException("Angel One sign-in did not return an access token");
@@ -108,7 +122,7 @@ public class AngelOneClient {
 	public List<Holding> holdings(String baseUrl, Credentials credentials) {
 		String token = login(baseUrl, credentials);
 		try {
-			JsonNode answer = send(request(baseUrl + HOLDINGS, credentials).header("Authorization", "Bearer " + token).GET().build());
+			JsonNode answer = send("holdings", request(baseUrl + HOLDINGS, credentials).header("Authorization", "Bearer " + token).GET().build());
 			JsonNode list = answer.path("data").path("holdings");
 			if (!list.isArray()) {
 				throw new IllegalStateException("Angel One did not return a holdings list");
@@ -137,8 +151,23 @@ public class AngelOneClient {
 				.header("X-PrivateKey", credentials.apiKey()).header("X-MACAddress", credentials.macAddress()).header("X-UserType", "USER").header("X-SourceID", "WEB");
 	}
 
+	// One call to Angel One, counted once with its result and time, whatever the answer. endpoint is a short name (login, holdings), never the address.
+	private JsonNode send(String endpoint, HttpRequest request) throws IOException, InterruptedException {
+		long started = System.nanoTime();
+		boolean worked = false;
+		try {
+			JsonNode answer = exchange(request);
+			worked = true;
+			return answer;
+		} finally {
+			if (usage != null) {
+				usage.recordExternal(PROVIDER, endpoint, worked, (System.nanoTime() - started) / 1_000_000L);
+			}
+		}
+	}
+
 	// The answer as JSON; a refusal (HTTP error, or status false) is an IllegalStateException with Angel One's own short message.
-	private JsonNode send(HttpRequest request) throws IOException, InterruptedException {
+	private JsonNode exchange(HttpRequest request) throws IOException, InterruptedException {
 		HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
 		JsonNode body;
 		try {

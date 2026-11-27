@@ -24,6 +24,8 @@ public class RedisEndpoint {
 	private final String defaultUsername;
 	private final RedisPassword defaultPassword;
 	private volatile boolean credentialsChanged;
+	// The Active / Inactive switch. Inactive: nothing reads or writes Redis (cache, login limits, the sync lock). Kept in memory; a restart turns it on.
+	private volatile boolean enabled = true;
 
 	public RedisEndpoint(RedisConnectionFactory connectionFactory, @Value("${spring.data.redis.url:}") String url) {
 		if (!(connectionFactory instanceof LettuceConnectionFactory lettuce)) {
@@ -40,6 +42,15 @@ public class RedisEndpoint {
 
 	public boolean isConfigured() {
 		return configured;
+	}
+
+	public boolean isEnabled() {
+		return enabled;
+	}
+
+	public void setEnabled(boolean enabled) {
+		this.enabled = enabled;
+		LOGGER.info("Redis switched " + (enabled ? "on" : "off") + " by an admin");
 	}
 
 	public String defaultAddress() {

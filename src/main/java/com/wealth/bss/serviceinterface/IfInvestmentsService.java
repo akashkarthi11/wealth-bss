@@ -7,4 +7,7 @@ public interface IfInvestmentsService {
 
 	// Every active holding with its instrument, latest price, current value and gain, largest value first, plus totals in rupees over the priced rupee holdings.
 	InvestmentsDto list();
+
+	// The Refresh button: asks for a fresh read at once (at most every few seconds per user) and returns what is cached now; fetchedAt tells when it was read.
+	InvestmentsDto refresh();
 }
