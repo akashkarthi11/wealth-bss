@@ -32,4 +32,8 @@ public interface IfThirdPartyServiceContract {
 
 	@PostMapping(WealthServiceConstants.THIRD_PARTY_REMOVE)
 	ResponseEntity<ApiResponse<Boolean, Void>> remove(@RequestBody ProviderRequestDto request) throws KarthiException;
+
+	// Not admin only: the service decides what each caller sees.
+	@PostMapping(WealthServiceConstants.THIRD_PARTY_OVERVIEW)
+	ResponseEntity<ApiResponse<com.wealth.common.model.dto.admin.ConnectionsOverviewDto, Void>> overview() throws KarthiException;
 }

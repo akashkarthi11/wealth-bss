@@ -18,6 +18,12 @@ public interface IfWealthConnectionDao {
 	// Saves the result of a fetch: entity.provider and entity.lastFetchNote (short); the time is now. Returns null when there is no such provider.
 	WealthConnectionEntity saveFetchResult(WealthConnectionEntity entity);
 
+	// Empties the shared login (key, other login values and key hint) of the provider, keeping its address and switches; false when there was no such provider.
+	boolean clearCredential(String provider);
+
 	// Removes the provider; false when there was none.
 	boolean delete(String provider);
+
+	// The overview rows of one part: main, common or user. For user, userId limits it to that user; empty = every user. Never a key.
+	List<com.wealth.common.model.dto.admin.ConnectionOverviewRowDto> overview(String part, String userId);
 }

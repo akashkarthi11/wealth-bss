@@ -36,6 +36,7 @@ public class AngelOneClient {
 	private static final String PROVIDER = "angel-one";
 	private static final String LOGIN = "/rest/auth/angelbroking/user/v1/loginByPassword";
 	private static final String HOLDINGS = "/rest/secure/angelbroking/portfolio/v1/getAllHolding";
+	private static final String FUNDS = "/rest/secure/angelbroking/user/v1/getRMS";
 	private static final String BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 	private static final int SECONDS = 15;
 	private static final int TOTP_STEP_SECONDS = 30;
@@ -55,6 +56,11 @@ public class AngelOneClient {
 	// One holding as Angel One reports it.
 	public record Holding(String symbol, String isin, String exchange, String token, BigDecimal quantity, BigDecimal averagePrice, BigDecimal lastPrice, String product,
 			BigDecimal t1Quantity, BigDecimal collateralQuantity, BigDecimal haircut, BigDecimal close, BigDecimal profitAndLoss, BigDecimal pnlPercent) {
+	}
+
+	// What one sign-in reads: the holdings and the cash in the trading account (Angel One's availablecash; it can include margin, so it is only an estimate). cash is null when
+	// the funds could not be read; that never stops the holdings from being saved.
+	public record Portfolio(List<Holding> holdings, BigDecimal cash) {
 	}
 
 	// The login values kept together as one encrypted block, by these names.
@@ -118,9 +124,32 @@ public class AngelOneClient {
 		}
 	}
 
+	// Signs in once and reads the holdings and the cash.
+	public Portfolio portfolio(String baseUrl, Credentials credentials) {
+		String token = login(baseUrl, credentials);
+		List<Holding> list = readHoldings(baseUrl, credentials, token);
+		return new Portfolio(list, readCash(baseUrl, credentials, token));
+	}
+
 	// Signs in and reads the holdings.
 	public List<Holding> holdings(String baseUrl, Credentials credentials) {
-		String token = login(baseUrl, credentials);
+		return readHoldings(baseUrl, credentials, login(baseUrl, credentials));
+	}
+
+	private BigDecimal readCash(String baseUrl, Credentials credentials, String token) {
+		try {
+			JsonNode answer = send("funds", request(baseUrl + FUNDS, credentials).header("Authorization", "Bearer " + token).GET().build());
+			return optional(answer.path("data"), "availablecash");
+		} catch (IOException | RuntimeException e) {
+			LOGGER.warn("Angel One funds were not read (" + e.getClass().getSimpleName() + ")");
+			return null;
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			return null;
+		}
+	}
+
+	private List<Holding> readHoldings(String baseUrl, Credentials credentials, String token) {
 		try {
 			JsonNode answer = send("holdings", request(baseUrl + HOLDINGS, credentials).header("Authorization", "Bearer " + token).GET().build());
 			JsonNode list = answer.path("data").path("holdings");

@@ -34,6 +34,10 @@ class AngelOneClientTest {
 	private volatile String loginAnswer = "{\"status\":true,\"data\":{\"jwtToken\":\"the-jwt\"}}";
 	private volatile int loginCode = 200;
 	private volatile String holdingsAnswer = "{\"status\":true,\"data\":{\"holdings\":[]}}";
+	private volatile String fundsAnswer = "{\"status\":true,\"data\":{\"net\":\"1300.00\",\"availablecash\":\"1250.75\"}}";
+	private volatile int fundsCode = 200;
+	private final java.util.concurrent.atomic.AtomicInteger logins = new java.util.concurrent.atomic.AtomicInteger();
+	private final AtomicReference<String> fundsAuth = new AtomicReference<>();
 
 	@BeforeEach
 	void start() throws IOException {
@@ -41,11 +45,16 @@ class AngelOneClientTest {
 		server.createContext("/rest/auth/angelbroking/user/v1/loginByPassword", exchange -> {
 			loginBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
 			privateKey.set(exchange.getRequestHeaders().getFirst("X-PrivateKey"));
+			logins.incrementAndGet();
 			reply(exchange, loginCode, loginAnswer);
 		});
 		server.createContext("/rest/secure/angelbroking/portfolio/v1/getAllHolding", exchange -> {
 			holdingsAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
 			reply(exchange, 200, holdingsAnswer);
+		});
+		server.createContext("/rest/secure/angelbroking/user/v1/getRMS", exchange -> {
+			fundsAuth.set(exchange.getRequestHeaders().getFirst("Authorization"));
+			reply(exchange, fundsCode, fundsAnswer);
 		});
 		server.start();
 		base = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -165,5 +174,28 @@ class AngelOneClientTest {
 		assertThrows(IllegalStateException.class, () -> counted.login("http://127.0.0.1:9", credentials));
 		org.mockito.Mockito.verify(usage, org.mockito.Mockito.times(2)).recordExternal(org.mockito.ArgumentMatchers.eq("angel-one"),
 				org.mockito.ArgumentMatchers.eq("login"), org.mockito.ArgumentMatchers.eq(false), org.mockito.ArgumentMatchers.anyLong());
+	}
+
+	@Test
+	void theHoldingsAndTheCashAreReadWithOneSignInAndTheCashIsAvailableCash() {
+		AngelOneClient.Portfolio portfolio = client.portfolio(base, credentials);
+
+		assertEquals(1, logins.get(), "one sign-in for both reads");
+		assertEquals("Bearer the-jwt", fundsAuth.get());
+		assertEquals(0, new java.math.BigDecimal("1250.75").compareTo(portfolio.cash()));
+		assertEquals(0, portfolio.holdings().size());
+	}
+
+	@Test
+	void aFundsFailureOrAnUnreadableAnswerGivesNoCashAndNeverStopsTheHoldings() {
+		fundsCode = 500;
+		assertEquals(null, client.portfolio(base, credentials).cash());
+		fundsCode = 200;
+		fundsAnswer = "{\"status\":true,\"data\":{\"availablecash\":\"n/a\"}}";
+		assertEquals(null, client.portfolio(base, credentials).cash());
+		fundsAnswer = "{\"status\":true,\"data\":{}}";
+		assertEquals(null, client.portfolio(base, credentials).cash());
+		holdingsAnswer = "{\"status\":true,\"data\":{\"holdings\":[{\"tradingsymbol\":\"LT-EQ\",\"quantity\":\"1\"}]}}";
+		assertEquals(1, client.portfolio(base, credentials).holdings().size());
 	}
 }

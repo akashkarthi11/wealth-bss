@@ -18,4 +18,8 @@ public interface IfThirdPartyService {
 	ThirdPartyDto test(ProviderRequestDto request);
 
 	void remove(ProviderRequestDto request);
+
+	// Every connection in its three parts (main, common, user), never a key. An admin sees every user's rows and the common keys; anyone else sees only their own user rows and no common keys.
+	// This is the one call here that is not admin only.
+	com.wealth.common.model.dto.admin.ConnectionsOverviewDto overview();
 }

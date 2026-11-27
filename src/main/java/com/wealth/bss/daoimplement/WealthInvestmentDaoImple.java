@@ -48,6 +48,42 @@ public class WealthInvestmentDaoImple extends WealthBaseDaoImple implements IfWe
 	}
 
 	@Override
+	public List<WealthAccountBalanceEntity> findHoldingAccountCashByUser(PaginationDto paginationDto) {
+		String methodName = "findHoldingAccountCashByUser";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		List<WealthAccountBalanceEntity> rows = jdbcTemplate.query(QueryConstants.FIND_HOLDING_ACCOUNT_CASH_BY_USER, new BeanPropertyRowMapper<>(WealthAccountBalanceEntity.class),
+				paginationDto.getUserId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
+		return rows;
+	}
+
+	@Override
+	@Transactional
+	public String saveHolding(String actor, String accountId, String priceSource, WealthHoldingEntity holding) {
+		String methodName = "saveHolding";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		WealthHoldingEntity who = new WealthHoldingEntity();
+		who.setActor(actor);
+		setActor(who);
+		String instrumentId = saveOne(accountId, priceSource, holding);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return instrumentId;
+	}
+
+	// The instrument, the holding and its price: the same three statements for a fetched holding and one entered by hand.
+	private String saveOne(String accountId, String priceSource, WealthHoldingEntity holding) {
+		WealthInstrumentEntity share = holding.getInstrument();
+		String instrumentId = jdbcTemplate.queryForObject(QueryConstants.UPSERT_INSTRUMENT, String.class, share.getAssetClass(), share.getSymbol(), share.getName(),
+				share.getCurrency(), share.getUnit(), share.getPriceSource(), share.getPriceSourceSymbol(), share.getIsin(), share.getExchange());
+		jdbcTemplate.update(QueryConstants.UPSERT_HOLDING, accountId, instrumentId, holding.getQuantity(), holding.getInvestedValue(), holding.getAsOf(), holding.getProduct(), holding.getT1Quantity(),
+				holding.getCollateralQuantity(), holding.getHaircut(), holding.getBrokerClose(), holding.getBrokerPnl(), holding.getBrokerPnlPercent());
+		if (holding.getLastPrice() != null && holding.getLastPrice().signum() > 0) {
+			jdbcTemplate.update(QueryConstants.INSERT_INSTRUMENT_PRICE, instrumentId, holding.getAsOf(), priceSource, holding.getLastPrice());
+		}
+		return instrumentId;
+	}
+
+	@Override
 	@Transactional
 	public int[] saveBrokerHoldings(String actor, String accountId, String priceSource, List<WealthHoldingEntity> holdings) {
 		String methodName = "saveBrokerHoldings";
@@ -57,15 +93,7 @@ public class WealthInvestmentDaoImple extends WealthBaseDaoImple implements IfWe
 		setActor(who);
 		List<String> kept = new ArrayList<>();
 		for (WealthHoldingEntity holding : holdings) {
-			WealthInstrumentEntity share = holding.getInstrument();
-			String instrumentId = jdbcTemplate.queryForObject(QueryConstants.UPSERT_INSTRUMENT, String.class, share.getAssetClass(), share.getSymbol(), share.getName(),
-					share.getCurrency(), share.getUnit(), share.getPriceSource(), share.getPriceSourceSymbol(), share.getIsin(), share.getExchange());
-			jdbcTemplate.update(QueryConstants.UPSERT_HOLDING, accountId, instrumentId, holding.getQuantity(), holding.getInvestedValue(), holding.getAsOf(), holding.getProduct(), holding.getT1Quantity(),
-					holding.getCollateralQuantity(), holding.getHaircut(), holding.getBrokerClose(), holding.getBrokerPnl(), holding.getBrokerPnlPercent());
-			if (holding.getLastPrice() != null && holding.getLastPrice().signum() > 0) {
-				jdbcTemplate.update(QueryConstants.INSERT_INSTRUMENT_PRICE, instrumentId, holding.getAsOf(), priceSource, holding.getLastPrice());
-			}
-			kept.add(instrumentId);
+			kept.add(saveOne(accountId, priceSource, holding));
 		}
 		int closed = jdbcTemplate.update(QueryConstants.CLOSE_MISSING_HOLDINGS, accountId, String.join(",", kept));
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | saved=" + kept.size() + " closed=" + closed);

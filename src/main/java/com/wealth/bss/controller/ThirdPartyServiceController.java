@@ -57,6 +57,12 @@ public class ThirdPartyServiceController implements IfThirdPartyServiceContract 
 	}
 
 	@Override
+	public ResponseEntity<ApiResponse<com.wealth.common.model.dto.admin.ConnectionsOverviewDto, Void>> overview() throws KarthiException {
+		LOGGER.info("Entering overview");
+		return responseTemplate.apires(thirdPartyService.overview(), BaseError.Success);
+	}
+
+	@Override
 	public ResponseEntity<ApiResponse<Boolean, Void>> remove(ProviderRequestDto request) throws KarthiException {
 		LOGGER.info("Entering remove");
 		thirdPartyService.remove(request);

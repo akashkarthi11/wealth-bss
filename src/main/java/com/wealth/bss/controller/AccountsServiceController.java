@@ -14,7 +14,12 @@ import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
 import com.wealth.common.model.dto.AccountIdRequestDto;
 import com.wealth.common.model.dto.IdRequestDto;
+import com.wealth.common.model.dto.account.AccountCreateRequestDto;
+import com.wealth.common.model.dto.account.BalanceRecordRequestDto;
+import com.wealth.common.model.dto.account.BalanceRecordResultDto;
+import com.wealth.common.model.dto.account.FdTermsRequestDto;
 import com.wealth.common.model.dto.account.AccountDetailDto;
+import com.wealth.common.model.dto.account.AccountDto;
 import com.wealth.common.model.dto.account.AccountSplitDto;
 import com.wealth.common.model.dto.account.AccountSubtypeDto;
 import com.wealth.common.model.dto.account.AccountsOverviewDto;
@@ -42,6 +47,24 @@ public class AccountsServiceController implements IfAccountsServiceContract {
 	public ResponseEntity<ApiResponse<AccountsOverviewDto, Void>> refresh() throws KarthiException {
 		LOGGER.info("Entering refresh");
 		return responseTemplate.apires(accountsService.refresh(), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<AccountDto, Void>> create(AccountCreateRequestDto request) throws KarthiException {
+		LOGGER.info("Entering create");
+		return responseTemplate.apires(accountsService.create(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<BalanceRecordResultDto, Void>> recordBalance(BalanceRecordRequestDto request) throws KarthiException {
+		LOGGER.info("Entering recordBalance");
+		return responseTemplate.apires(accountsService.recordBalance(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<AccountDto, Void>> updateFdTerms(FdTermsRequestDto request) throws KarthiException {
+		LOGGER.info("Entering updateFdTerms");
+		return responseTemplate.apires(accountsService.updateFdTerms(request), BaseError.Success);
 	}
 
 	@Override

@@ -1,6 +1,7 @@
 package com.wealth.bss.serviceimplement;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -24,6 +25,7 @@ import com.wealth.bss.common.model.entity.WealthAccountSubtypeEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfAccountsService;
+import com.wealth.bss.serviceinterface.IfRequestContextService;
 import com.wealth.common.assembler.GenericAssembler;
 import com.wealth.common.generic.BaseError;
 import com.wealth.common.generic.KarthiException;
@@ -32,6 +34,10 @@ import com.wealth.common.model.dto.AccountIdRequestDto;
 import com.wealth.common.model.dto.CachedValueDto;
 import com.wealth.common.model.dto.IdRequestDto;
 import com.wealth.common.model.dto.account.AccountBalanceDto;
+import com.wealth.common.model.dto.account.AccountCreateRequestDto;
+import com.wealth.common.model.dto.account.BalanceRecordRequestDto;
+import com.wealth.common.model.dto.account.BalanceRecordResultDto;
+import com.wealth.common.model.dto.account.FdTermsRequestDto;
 import com.wealth.common.model.dto.account.AccountDetailDto;
 import com.wealth.common.model.dto.account.AccountDto;
 import com.wealth.common.model.dto.account.AccountSplitDto;
@@ -39,6 +45,7 @@ import com.wealth.common.model.dto.account.AccountSubtypeDto;
 import com.wealth.common.model.dto.account.AccountTotalsDto;
 import com.wealth.common.model.dto.account.AccountsOverviewDto;
 import com.wealth.common.model.dto.account.BankDto;
+import com.wealth.common.model.dto.account.FdTermsDto;
 import com.wealth.common.model.dto.account.SplitMoveDto;
 import com.wealth.common.utils.generic.RequestHeaderUtil;
 
@@ -54,10 +61,13 @@ public class AccountsServiceImple implements IfAccountsService {
 	private final IfWealthAccountSplitDao wealthAccountSplitDao;
 	private final IfWealthInvestmentDao wealthInvestmentDao;
 	private final IfNexusReadService nexusReadService;
+	private final IfRequestContextService requestContextService;
 
 	public AccountsServiceImple(IfWealthAccountDao wealthAccountDao, IfWealthAccountBalanceDao wealthAccountBalanceDao,
-			IfWealthAccountSplitDao wealthAccountSplitDao, IfWealthInvestmentDao wealthInvestmentDao, IfNexusReadService nexusReadService) {
+			IfWealthAccountSplitDao wealthAccountSplitDao, IfWealthInvestmentDao wealthInvestmentDao, IfNexusReadService nexusReadService,
+			IfRequestContextService requestContextService) {
 		this.nexusReadService = nexusReadService;
+		this.requestContextService = requestContextService;
 		this.wealthAccountDao = wealthAccountDao;
 		this.wealthAccountBalanceDao = wealthAccountBalanceDao;
 		this.wealthAccountSplitDao = wealthAccountSplitDao;
@@ -94,16 +104,22 @@ public class AccountsServiceImple implements IfAccountsService {
 		Map<String, WealthAccountBalanceEntity> held = holdingValues(paginationDto);
 		Map<String, BankDto> banks = new LinkedHashMap<>();
 		AccountTotalsDto totals = emptyTotals();
+		List<AccountDto> investmentAccounts = new ArrayList<>();
 		for (WealthAccountEntity entity : wealthAccountDao.findByUser(paginationDto)) {
 			if (!WealthServiceConstants.ACCOUNT_ACTIVE.equals(entity.getStatus())) {
 				continue;
 			}
 			WealthAccountSubtypeEntity subtype = subtypes.get(entity.getSubtypeCode());
 			AccountDto account = toAccount(entity, subtype, valued(subtype, held.get(entity.getId()), latest.get(entity.getId())));
+			add(totals, account);
+			// A broker account valued by its holdings (demat) is an investment, not a bank account: it counts in the totals and shows on Investments.
+			if (subtype != null && WealthServiceConstants.VALUATION_HOLDINGS.equals(subtype.getValuation())) {
+				investmentAccounts.add(account);
+				continue;
+			}
 			BankDto bank = banks.computeIfAbsent(entity.getBankName(), name -> newBank(name));
 			bank.getAccounts().add(account);
 			add(bank.getTotals(), account);
-			add(totals, account);
 		}
 		for (BankDto bank : banks.values()) {
 			close(bank.getTotals());
@@ -112,8 +128,175 @@ public class AccountsServiceImple implements IfAccountsService {
 		AccountsOverviewDto overview = new AccountsOverviewDto();
 		overview.setTotals(totals);
 		overview.setBanks(new ArrayList<>(banks.values()));
+		overview.setInvestmentAccounts(investmentAccounts);
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | banks=" + banks.size());
 		return overview;
+	}
+
+	// A bank has no table of its own: it is the institution text of its accounts, so it appears with its first account. A new account starts with an unknown balance.
+	@Override
+	public AccountDto create(AccountCreateRequestDto request) {
+		String methodName = "create";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		requestContextService.requireAdmin();
+		if (request == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		WealthAccountSubtypeEntity subtype = request.getSubtype() == null ? null : subtypesByCode().get(request.getSubtype().trim());
+		if (subtype == null) {
+			throw new KarthiException(BaseError.ACCOUNT_TYPE_INVALID);
+		}
+		String institution = clean(request.getInstitution(), WealthServiceConstants.ACCOUNT_TEXT_MAX_LENGTH);
+		String name = clean(request.getName(), WealthServiceConstants.ACCOUNT_TEXT_MAX_LENGTH);
+		String masked = clean(request.getMaskedIdentifier(), WealthServiceConstants.ACCOUNT_MASK_MAX_LENGTH);
+		if (institution.isEmpty() || name.isEmpty() || (request.getMaskedIdentifier() != null && request.getMaskedIdentifier().trim().length() > WealthServiceConstants.ACCOUNT_MASK_MAX_LENGTH)
+				|| (request.getInstitution() != null && request.getInstitution().trim().length() > WealthServiceConstants.ACCOUNT_TEXT_MAX_LENGTH)
+				|| (request.getName() != null && request.getName().trim().length() > WealthServiceConstants.ACCOUNT_TEXT_MAX_LENGTH)) {
+			throw new KarthiException(BaseError.ACCOUNT_DETAILS_INVALID);
+		}
+		String currency = request.getCurrency() == null || request.getCurrency().isBlank()
+				? (WealthServiceConstants.SUBTYPE_US_BROKERAGE.equals(subtype.getCode()) ? WealthServiceConstants.CURRENCY_USD : WealthServiceConstants.CURRENCY_INR)
+				: request.getCurrency().trim().toUpperCase();
+		if (!WealthServiceConstants.CURRENCY_INR.equals(currency) && !WealthServiceConstants.CURRENCY_USD.equals(currency)) {
+			throw new KarthiException(BaseError.ACCOUNT_CURRENCY_INVALID);
+		}
+		FdTermsDto terms = request.getFdTerms();
+		if (terms != null && (!WealthServiceConstants.SUBTYPE_FIXED_DEPOSIT.equals(subtype.getCode()) || !validTerms(terms))) {
+			throw new KarthiException(BaseError.FD_TERMS_INVALID);
+		}
+		WealthAccountEntity entity = new WealthAccountEntity();
+		entity.setUserId(RequestHeaderUtil.getUserId());
+		entity.setAccountKey(accountKey(institution, subtype.getCode(), name, masked));
+		entity.setBankName(institution);
+		entity.setAccountName(name);
+		entity.setSubtypeCode(subtype.getCode());
+		entity.setMaskedIdentifier(masked.isEmpty() ? null : masked);
+		entity.setCurrency(currency);
+		if (terms != null) {
+			entity.setFdPrincipal(terms.getPrincipal());
+			entity.setFdBookedOn(terms.getBookedOn());
+			entity.setFdMaturityOn(terms.getMaturityOn());
+			entity.setFdPayout(terms.getPayout());
+			entity.setFdCompounding(terms.getCompounding());
+		}
+		WealthAccountEntity saved = wealthAccountDao.insert(entity);
+		if (saved == null) {
+			throw new KarthiException(BaseError.ACCOUNT_EXISTS);
+		}
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_ACCOUNTS, entity.getUserId());
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_INVESTMENTS, entity.getUserId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return toAccount(saved, subtype, null);
+	}
+
+	@Override
+	public BalanceRecordResultDto recordBalance(BalanceRecordRequestDto request) {
+		String methodName = "recordBalance";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		requestContextService.requireAdmin();
+		if (request == null || !isId(request.getAccountId())) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		PaginationDto paginationDto = caller();
+		paginationDto.setId(request.getAccountId());
+		WealthAccountEntity account = wealthAccountDao.findById(paginationDto);
+		if (account == null) {
+			throw new KarthiException(BaseError.WEALTH_ACCOUNT_NOT_FOUND);
+		}
+		WealthAccountSubtypeEntity subtype = subtypesByCode().get(account.getSubtypeCode());
+		if (!WealthServiceConstants.ACCOUNT_ACTIVE.equals(account.getStatus()) || subtype == null || !WealthServiceConstants.VALUATION_BALANCE.equals(subtype.getValuation())) {
+			throw new KarthiException(BaseError.BALANCE_NOT_ALLOWED);
+		}
+		String status = request.getStatus() == null || request.getStatus().isBlank() ? WealthServiceConstants.BALANCE_VERIFIED : request.getStatus().trim();
+		long now = System.currentTimeMillis();
+		Timestamp asOf = request.getAsOf() == null ? new Timestamp(now) : request.getAsOf();
+		if (request.getBalance() == null || request.getBalance().abs().doubleValue() > WealthServiceConstants.BALANCE_ABS_MAX || asOf.getTime() > now
+				|| !(WealthServiceConstants.BALANCE_VERIFIED.equals(status) || WealthServiceConstants.BALANCE_REPORTED.equals(status))) {
+			throw new KarthiException(BaseError.BALANCE_INVALID);
+		}
+		String note = request.getNote() == null || request.getNote().isBlank() ? null : request.getNote().trim().substring(0, Math.min(request.getNote().trim().length(), WealthServiceConstants.BALANCE_NOTE_MAX_LENGTH));
+		WealthAccountBalanceEntity entity = new WealthAccountBalanceEntity();
+		entity.setUserId(paginationDto.getUserId());
+		entity.setAccountId(account.getId());
+		entity.setAsOf(asOf);
+		entity.setBalance(request.getBalance());
+		entity.setStatus(status);
+		entity.setNote(note);
+		entity.setEnteredBy(WealthServiceConstants.ACTOR_OWNER);
+		BalanceRecordResultDto result = new BalanceRecordResultDto();
+		if (request.isDryRun()) {
+			result.setBalance(GenericAssembler.toDTO(entity, AccountBalanceDto.class));
+			return result;
+		}
+		WealthAccountBalanceEntity saved = wealthAccountBalanceDao.insert(entity);
+		if (saved == null) {
+			result.setReason(WealthServiceConstants.BALANCE_ALREADY_STORED);
+			return result;
+		}
+		if (WealthServiceConstants.SUBTYPES_WITH_ACCOUNT_COPY.contains(account.getSubtypeCode()) && WealthServiceConstants.BALANCE_VERIFIED.equals(status)) {
+			wealthAccountBalanceDao.updateAccountCopy(entity);
+		}
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_ACCOUNTS, entity.getUserId());
+		result.setStored(true);
+		result.setBalance(GenericAssembler.toDTO(saved, AccountBalanceDto.class));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return result;
+	}
+
+	@Override
+	public AccountDto updateFdTerms(FdTermsRequestDto request) {
+		String methodName = "updateFdTerms";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		requestContextService.requireAdmin();
+		if (request == null || !isId(request.getAccountId()) || request.getFdTerms() == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		PaginationDto paginationDto = caller();
+		paginationDto.setId(request.getAccountId());
+		WealthAccountEntity account = wealthAccountDao.findById(paginationDto);
+		if (account == null) {
+			throw new KarthiException(BaseError.WEALTH_ACCOUNT_NOT_FOUND);
+		}
+		FdTermsDto terms = request.getFdTerms();
+		if (!WealthServiceConstants.SUBTYPE_FIXED_DEPOSIT.equals(account.getSubtypeCode()) || !validTerms(terms)) {
+			throw new KarthiException(BaseError.FD_TERMS_INVALID);
+		}
+		WealthAccountEntity change = new WealthAccountEntity();
+		change.setUserId(paginationDto.getUserId());
+		change.setId(account.getId());
+		change.setFdPrincipal(terms.getPrincipal());
+		change.setFdBookedOn(terms.getBookedOn());
+		change.setFdMaturityOn(terms.getMaturityOn());
+		change.setFdPayout(terms.getPayout());
+		change.setFdCompounding(terms.getCompounding());
+		WealthAccountEntity saved = wealthAccountDao.updateFdTerms(change);
+		if (saved == null) {
+			throw new KarthiException(BaseError.WEALTH_ACCOUNT_NOT_FOUND);
+		}
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_ACCOUNTS, change.getUserId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return toAccount(saved, subtypesByCode().get(saved.getSubtypeCode()), null);
+	}
+
+	private static String clean(String value, int max) {
+		return value == null ? "" : value.trim().length() > max ? value.trim().substring(0, max) : value.trim();
+	}
+
+	// The key that makes the same institution, type, name and number one account: lower-case words joined with dashes, as the old app wrote it.
+	private static String accountKey(String institution, String subtype, String name, String masked) {
+		return java.util.stream.Stream.of(slug(institution), subtype, slug(name), slug(masked)).filter(part -> !part.isEmpty()).collect(java.util.stream.Collectors.joining("-"));
+	}
+
+	private static String slug(String value) {
+		return value.toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+	}
+
+	// Principal above 0, maturity after booking, and only the allowed payout and compounding words.
+	private static boolean validTerms(FdTermsDto terms) {
+		return (terms.getPrincipal() == null || terms.getPrincipal().signum() > 0)
+				&& (terms.getBookedOn() == null || terms.getMaturityOn() == null || terms.getMaturityOn().after(terms.getBookedOn()))
+				&& (terms.getPayout() == null || WealthServiceConstants.FD_PAYOUTS.contains(terms.getPayout()))
+				&& (terms.getCompounding() == null || WealthServiceConstants.FD_COMPOUNDING.contains(terms.getCompounding()));
 	}
 
 	@Override
@@ -195,9 +378,10 @@ public class AccountsServiceImple implements IfAccountsService {
 		return held;
 	}
 
-	// An account valued by holdings (demat) shows its holdings value when it has priced holdings; every other account shows its latest balance.
+	// An account valued by holdings (demat, funds, gold) shows its holdings value, or none while it has no priced holding; its own balance rows are not its value (Angel One's cash is
+	// kept there). Every other account shows its latest balance.
 	private WealthAccountBalanceEntity valued(WealthAccountSubtypeEntity subtype, WealthAccountBalanceEntity held, WealthAccountBalanceEntity balance) {
-		return subtype != null && WealthServiceConstants.VALUATION_HOLDINGS.equals(subtype.getValuation()) && held != null ? held : balance;
+		return subtype != null && WealthServiceConstants.VALUATION_HOLDINGS.equals(subtype.getValuation()) ? held : balance;
 	}
 
 	private AccountDto toAccount(WealthAccountEntity entity, WealthAccountSubtypeEntity subtype, WealthAccountBalanceEntity balance) {

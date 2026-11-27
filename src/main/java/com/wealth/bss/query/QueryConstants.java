@@ -128,6 +128,77 @@ public final class QueryConstants {
 
 	public static final String DELETE_CONNECTION = "DELETE FROM WEALTH_CONNECTIONS WHERE PROVIDER = ?";
 
+	// ---- the connections overview: the three parts, never a key (only whether one is set and its last characters) ----
+	public static final String OVERVIEW_MAIN_CONNECTIONS = "SELECT PROVIDER, LABEL, SCOPE, ENABLED, (CREDENTIAL_ENC IS NOT NULL) AS KEY_SET, KEY_HINT, LAST_STATUS AS STATUS, "
+			+ "LAST_CHECKED_AT AS CHECKED_AT, UPDT_DT AS UPDATED_AT FROM WEALTH_CONNECTIONS ORDER BY PRIORITY, PROVIDER";
+
+	public static final String OVERVIEW_COMMON_CONNECTIONS = "SELECT C.PROVIDER, M.LABEL, M.SCOPE, M.ENABLED, TRUE AS KEY_SET, C.KEY_HINT, C.UPDT_DT AS UPDATED_AT "
+			+ "FROM WEALTH_COMMON_CONNECTIONS C JOIN WEALTH_CONNECTIONS M ON M.PROVIDER = C.PROVIDER ORDER BY M.PRIORITY, C.PROVIDER";
+
+	// one user's rows, or every user's when the first parameter is empty
+	public static final String OVERVIEW_USER_CONNECTIONS = "SELECT U.PROVIDER, M.LABEL, M.SCOPE, U.ENABLED, TRUE AS KEY_SET, U.KEY_HINT, U.LAST_STATUS AS STATUS, "
+			+ "U.LAST_CHECKED_AT AS CHECKED_AT, U.UPDT_DT AS UPDATED_AT, W.EMAIL AS USER_EMAIL FROM WEALTH_USER_CONNECTIONS U JOIN WEALTH_CONNECTIONS M ON M.PROVIDER = U.PROVIDER "
+			+ "JOIN WEALTH_USERS W ON W.ID = U.USER_ID WHERE (? = '' OR U.USER_ID = CAST(NULLIF(?, '') AS UUID)) ORDER BY W.EMAIL, U.PROVIDER";
+
+	// ---- figures read from statements (table wealth_statement_figures; the figures are one JSON object per statement) ----
+	// the same statement read again replaces its figures and state; when it was first seen is kept
+	// the transaction rows (LINES) are replaced when the new read has some; a locked or empty read keeps the rows saved before; when the user accepted them is kept
+	public static final String UPSERT_STATEMENT_FIGURES = "INSERT INTO WEALTH_STATEMENT_FIGURES (USER_ID, MAIL_REF, SOURCE, FIGURES, ORIGIN, STATUS, FILE_NAME, LINES, RECEIVED_AT) "
+			+ "VALUES (CAST(? AS UUID), ?, ?, CAST(? AS JSONB), ?, ?, ?, CAST(? AS JSONB), NOW()) ON CONFLICT (USER_ID, MAIL_REF, SOURCE) DO UPDATE SET FIGURES = EXCLUDED.FIGURES, STATUS = EXCLUDED.STATUS, "
+			+ "FILE_NAME = COALESCE(EXCLUDED.FILE_NAME, WEALTH_STATEMENT_FIGURES.FILE_NAME), LINES = COALESCE(NULLIF(EXCLUDED.LINES, '[]'::JSONB), WEALTH_STATEMENT_FIGURES.LINES), "
+			+ "READ_AT = NOW(), UPDT_DT = NOW()";
+
+	public static final String MARK_STATEMENT_ACCEPTED = "UPDATE WEALTH_STATEMENT_FIGURES SET ACCEPTED_AT = NOW(), UPDT_DT = NOW() WHERE USER_ID = CAST(? AS UUID) AND ID = CAST(? AS UUID)";
+
+	public static final String FIND_STATEMENT_FIGURES = "SELECT ID, SOURCE, CAST(FIGURES AS TEXT) AS FIGURES, READ_AT, JSONB_ARRAY_LENGTH(LINES) AS ROW_COUNT, ACCEPTED_AT FROM WEALTH_STATEMENT_FIGURES "
+			+ "WHERE USER_ID = CAST(? AS UUID) AND STATUS = 'opened' ORDER BY READ_AT DESC, SOURCE LIMIT 100";
+
+	// every statement received or uploaded, opened or not, newest first
+	public static final String FIND_STATEMENT_HISTORY = "SELECT ID, MAIL_REF, SOURCE, FILE_NAME, ORIGIN, STATUS, RECEIVED_AT, READ_AT, CAST(FIGURES AS TEXT) AS FIGURES, "
+			+ "JSONB_ARRAY_LENGTH(LINES) AS ROW_COUNT, ACCEPTED_AT FROM WEALTH_STATEMENT_FIGURES "
+			+ "WHERE USER_ID = CAST(? AS UUID) ORDER BY RECEIVED_AT DESC NULLS LAST, READ_AT DESC LIMIT 200";
+
+	public static final String FIND_STATEMENT_BY_ID = "SELECT ID, MAIL_REF, SOURCE, FILE_NAME, ORIGIN, STATUS, RECEIVED_AT, READ_AT, CAST(FIGURES AS TEXT) AS FIGURES, "
+			+ "CAST(LINES AS TEXT) AS LINES, JSONB_ARRAY_LENGTH(LINES) AS ROW_COUNT, ACCEPTED_AT FROM WEALTH_STATEMENT_FIGURES "
+			+ "WHERE USER_ID = CAST(? AS UUID) AND ID = CAST(? AS UUID)";
+
+	// ---- the one key for everyone (table wealth_common_connections) ----
+	private static final String COMMON_CONNECTION_COLUMNS = "PROVIDER, CREDENTIAL_ENC, KEY_HINT, CRTD_DT, CRTD_BY, UPDT_DT, UPDT_BY";
+
+	public static final String FIND_COMMON_CONNECTION = "SELECT " + COMMON_CONNECTION_COLUMNS + " FROM WEALTH_COMMON_CONNECTIONS WHERE PROVIDER = ?";
+
+	public static final String UPSERT_COMMON_CONNECTION = "INSERT INTO WEALTH_COMMON_CONNECTIONS (PROVIDER, CREDENTIAL_ENC, KEY_HINT) VALUES (?, ?, ?) "
+			+ "ON CONFLICT (PROVIDER) DO UPDATE SET CREDENTIAL_ENC = EXCLUDED.CREDENTIAL_ENC, KEY_HINT = EXCLUDED.KEY_HINT, UPDT_DT = NOW() RETURNING "
+			+ COMMON_CONNECTION_COLUMNS;
+
+	public static final String DELETE_COMMON_CONNECTION = "DELETE FROM WEALTH_COMMON_CONNECTIONS WHERE PROVIDER = ?";
+
+	// ---- each user's own key (table wealth_user_connections) ----
+	private static final String USER_CONNECTION_COLUMNS = "CAST(USER_ID AS TEXT) AS USER_ID, PROVIDER, CREDENTIAL_ENC, KEY_HINT, ENABLED, LAST_STATUS, "
+			+ "LAST_CHECKED_AT, CRTD_DT, CRTD_BY, UPDT_DT, UPDT_BY";
+
+	public static final String FIND_USER_CONNECTION = "SELECT " + USER_CONNECTION_COLUMNS
+			+ " FROM WEALTH_USER_CONNECTIONS WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ?";
+
+	public static final String FIND_USER_CONNECTIONS_BY_PROVIDER = "SELECT " + USER_CONNECTION_COLUMNS + " FROM WEALTH_USER_CONNECTIONS WHERE PROVIDER = ? AND ENABLED = TRUE ORDER BY CRTD_DT";
+
+	// the shared login moves to its owner's own connection: the shared copy is emptied, the address and switches stay
+	public static final String CLEAR_CONNECTION_CREDENTIAL = "UPDATE WEALTH_CONNECTIONS SET CREDENTIAL_ENC = NULL, CREDENTIAL_EXTRA_ENC = NULL, KEY_HINT = NULL, UPDT_DT = NOW() WHERE PROVIDER = ?";
+
+	// a new key clears the last check result
+	public static final String UPSERT_USER_CONNECTION = "INSERT INTO WEALTH_USER_CONNECTIONS (USER_ID, PROVIDER, CREDENTIAL_ENC, KEY_HINT, ENABLED) "
+			+ "VALUES (CAST(? AS UUID), ?, ?, ?, ?) ON CONFLICT (USER_ID, PROVIDER) DO UPDATE SET CREDENTIAL_ENC = EXCLUDED.CREDENTIAL_ENC, "
+			+ "KEY_HINT = EXCLUDED.KEY_HINT, ENABLED = EXCLUDED.ENABLED, LAST_STATUS = NULL, LAST_CHECKED_AT = NULL, UPDT_DT = NOW() RETURNING "
+			+ USER_CONNECTION_COLUMNS;
+
+	public static final String UPDATE_USER_CONNECTION_CHECK = "UPDATE WEALTH_USER_CONNECTIONS SET LAST_STATUS = ?, LAST_CHECKED_AT = NOW(), UPDT_DT = NOW() "
+			+ "WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ? RETURNING " + USER_CONNECTION_COLUMNS;
+
+	public static final String DELETE_USER_CONNECTION = "DELETE FROM WEALTH_USER_CONNECTIONS WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ?";
+
+	// changes only the encrypted value (the statement passwords); the last check result stays
+	public static final String UPDATE_USER_CONNECTION_CREDENTIAL = "UPDATE WEALTH_USER_CONNECTIONS SET CREDENTIAL_ENC = ?, UPDT_DT = NOW() "
+			+ "WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ? RETURNING " + USER_CONNECTION_COLUMNS;
 	// ---- API usage (tables wealth_api_usage and wealth_api_usage_batch) ----
 	// The batch row is the ledger: a batch id that is already there is not added again.
 	public static final String INSERT_API_USAGE_BATCH = "INSERT INTO WEALTH_API_USAGE_BATCH (BATCH_ID) VALUES (?) ON CONFLICT (BATCH_ID) DO NOTHING";
@@ -184,6 +255,100 @@ public final class QueryConstants {
 			+ "WHERE T.USER_ID = CAST(? AS UUID) AND T.KIND = 'transfer' AND T.DUPLICATE_OF IS NULL AND T.CATEGORY ~* '^transfer (sent|received)$' "
 			+ "AND NOT EXISTS (SELECT 1 FROM WEALTH_PERSON_ENTRIES E WHERE E.TRANSACTION_ID = T.ID AND E.STATUS <> 'removed') ORDER BY T.OCCURRED_ON";
 
+	// ---- transactions (table wealth_transactions) ----
+	private static final String TRANSACTION_COLUMNS = "T.ID, T.KIND, T.CATEGORY, T.DESCRIPTION, T.AMOUNT, T.ACCOUNT_ID, "
+			+ "COALESCE(NULLIF(TRIM(A.ACCOUNT_NAME || ' ' || COALESCE(A.MASKED_IDENTIFIER, '')), ''), NULLIF(T.ACCOUNT, ''), 'Unassigned') AS ACCOUNT, "
+			+ "TO_CHAR(T.OCCURRED_ON, 'YYYY-MM-DD') AS OCCURRED_ON, T.EXTERNAL_REF, T.REVIEW_STATUS, T.DUPLICATE_OF, "
+			+ "TO_CHAR(T.CREATED_AT AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') AS CREATED_KEY, (T.DUPLICATE_OF IS NOT NULL OR T.REVIEW_STATUS = 'dismissed') AS INACTIVE";
+
+	// the caller's transactions, newest first; each filter is skipped when its first parameter is empty; the last filter continues after a cursor row (keyset on day, creation time, id)
+	public static final String FIND_TRANSACTION_PAGE = "SELECT " + TRANSACTION_COLUMNS + " FROM WEALTH_TRANSACTIONS T LEFT JOIN " + WEALTH_ACCOUNTS
+			+ " A ON A.USER_ID = T.USER_ID AND A.ID = T.ACCOUNT_ID WHERE T.USER_ID = CAST(? AS UUID) AND (? = '' OR T.KIND = ?) "
+			+ "AND (? = '' OR T.ACCOUNT_ID = CAST(NULLIF(?, '') AS UUID)) AND (? = '' OR T.OCCURRED_ON >= CAST(NULLIF(?, '') AS DATE)) "
+			+ "AND (? = '' OR T.OCCURRED_ON <= CAST(NULLIF(?, '') AS DATE)) "
+			+ "AND (? = '' OR LOWER(T.DESCRIPTION || ' ' || T.CATEGORY || ' ' || COALESCE(A.ACCOUNT_NAME, '') || ' ' || COALESCE(T.ACCOUNT, '')) LIKE ? ESCAPE '\\') "
+			+ "AND (? = '' OR (T.OCCURRED_ON, T.CREATED_AT, T.ID) < (CAST(NULLIF(?, '') AS DATE), CAST(NULLIF(?, '') AS TIMESTAMPTZ), CAST(NULLIF(?, '') AS UUID))) "
+			+ "ORDER BY T.OCCURRED_ON DESC, T.CREATED_AT DESC, T.ID DESC LIMIT ?";
+
+	// The dashboard: the same filters as the list, over every matching row (not a page), leaving out transfers, copies and dismissed entries. Money in is kind income; everything else
+	// that is not a transfer is money out. Parameters: user, kind x2, account x2, from x2, to x2, search x2.
+	private static final String SUMMARY_FROM = " FROM WEALTH_TRANSACTIONS T LEFT JOIN " + WEALTH_ACCOUNTS + " A ON A.USER_ID = T.USER_ID AND A.ID = T.ACCOUNT_ID "
+			+ "WHERE T.USER_ID = CAST(? AS UUID) AND (? = '' OR T.KIND = ?) AND (? = '' OR T.ACCOUNT_ID = CAST(NULLIF(?, '') AS UUID)) "
+			+ "AND (? = '' OR T.OCCURRED_ON >= CAST(NULLIF(?, '') AS DATE)) AND (? = '' OR T.OCCURRED_ON <= CAST(NULLIF(?, '') AS DATE)) "
+			+ "AND (? = '' OR LOWER(T.DESCRIPTION || ' ' || T.CATEGORY || ' ' || COALESCE(A.ACCOUNT_NAME, '') || ' ' || COALESCE(T.ACCOUNT, '')) LIKE ? ESCAPE '\\') "
+			+ "AND T.KIND <> 'transfer' AND T.DUPLICATE_OF IS NULL AND COALESCE(T.REVIEW_STATUS, '') <> 'dismissed'";
+
+	private static final String SUMMARY_SUMS = "SUM(CASE WHEN T.KIND = 'income' THEN T.AMOUNT ELSE 0 END) AS INCOMING, SUM(CASE WHEN T.KIND <> 'income' THEN T.AMOUNT ELSE 0 END) AS OUTGOING, "
+			+ "COUNT(*) AS COUNT";
+
+	public static final String SUMMARY_TOTAL = "SELECT 'total' AS LABEL, " + SUMMARY_SUMS + SUMMARY_FROM;
+
+	public static final String SUMMARY_BY_CATEGORY = "SELECT T.CATEGORY AS LABEL, " + SUMMARY_SUMS + SUMMARY_FROM + " GROUP BY T.CATEGORY ORDER BY OUTGOING DESC, INCOMING DESC, T.CATEGORY LIMIT 8";
+
+	public static final String SUMMARY_BY_ACCOUNT = "SELECT COALESCE(NULLIF(TRIM(A.ACCOUNT_NAME || ' ' || COALESCE(A.MASKED_IDENTIFIER, '')), ''), NULLIF(T.ACCOUNT, ''), 'Unassigned') AS LABEL, "
+			+ SUMMARY_SUMS + SUMMARY_FROM + " GROUP BY 1 ORDER BY OUTGOING DESC, INCOMING DESC, 1 LIMIT 8";
+
+	// the latest 12 months, newest first (the service puts them oldest first)
+	public static final String SUMMARY_BY_MONTH = "SELECT TO_CHAR(T.OCCURRED_ON, 'YYYY-MM') AS LABEL, " + SUMMARY_SUMS + SUMMARY_FROM + " GROUP BY 1 ORDER BY 1 DESC LIMIT 12";
+
+	// a reference already recorded for the user is not stored again (no row returned)
+	public static final String INSERT_TRANSACTION = "INSERT INTO WEALTH_TRANSACTIONS (USER_ID, KIND, CATEGORY, DESCRIPTION, AMOUNT, ACCOUNT, ACCOUNT_ID, OCCURRED_ON, EXTERNAL_REF, REVIEW_STATUS) "
+			+ "VALUES (CAST(? AS UUID), ?, ?, ?, ?, '', CAST(? AS UUID), CAST(? AS DATE), ?, COALESCE(CAST(? AS TEXT), 'pending')) ON CONFLICT (USER_ID, EXTERNAL_REF) WHERE EXTERNAL_REF IS NOT NULL DO NOTHING "
+			+ "RETURNING ID, KIND, CATEGORY, DESCRIPTION, AMOUNT, ACCOUNT_ID, TO_CHAR(OCCURRED_ON, 'YYYY-MM-DD') AS OCCURRED_ON, EXTERNAL_REF, REVIEW_STATUS, DUPLICATE_OF";
+
+	public static final String FIND_ACCOUNT_ID_BY_NAME = "SELECT ID FROM " + WEALTH_ACCOUNTS + " WHERE USER_ID = CAST(? AS UUID) AND (LOWER(ACCOUNT_NAME) = LOWER(?) "
+			+ "OR LOWER(TRIM(ACCOUNT_NAME || ' ' || COALESCE(MASKED_IDENTIFIER, ''))) = LOWER(?) OR LOWER(ACCOUNT_KEY) = LOWER(?)) LIMIT 1";
+
+	// ---- transactions read from Gmail (external_ref 'gmail:<message id>', review_status 'pending' until the user decides) ----
+	public static final String FIND_ACCOUNT_IDS_BY_LAST_DIGITS = "SELECT ID FROM " + WEALTH_ACCOUNTS + " WHERE USER_ID = CAST(? AS UUID) AND "
+			+ "RIGHT(REGEXP_REPLACE(COALESCE(MASKED_IDENTIFIER, ''), '[^0-9]', '', 'g'), 4) = ? AND LOWER(BANK_NAME) LIKE '%' || LOWER(?) || '%'";
+
+	public static final String FIND_GMAIL_PENDING_TRANSACTIONS = "SELECT " + TRANSACTION_COLUMNS + " FROM WEALTH_TRANSACTIONS T LEFT JOIN " + WEALTH_ACCOUNTS
+			+ " A ON A.USER_ID = T.USER_ID AND A.ID = T.ACCOUNT_ID WHERE T.USER_ID = CAST(? AS UUID) AND T.REVIEW_STATUS = 'pending' AND T.EXTERNAL_REF LIKE 'gmail:%' "
+			+ "ORDER BY T.OCCURRED_ON DESC, T.CREATED_AT DESC LIMIT 200";
+
+	public static final String UPDATE_GMAIL_TRANSACTION_REVIEW = "UPDATE WEALTH_TRANSACTIONS SET REVIEW_STATUS = ? WHERE USER_ID = CAST(? AS UUID) "
+			+ "AND ID = CAST(? AS UUID) AND REVIEW_STATUS = 'pending' AND EXTERNAL_REF LIKE 'gmail:%'";
+
+	// deleting a payment also removes the cashback the app wrote for it and cancels its offer uses (balances are not reversed)
+	public static final String DELETE_TRANSACTION_REWARDS = "DELETE FROM WEALTH_TRANSACTIONS WHERE USER_ID = CAST(? AS UUID) AND EXTERNAL_REF IN "
+			+ "(SELECT 'reward:' || U.ID FROM WEALTH_OFFER_USES U WHERE U.USER_ID = CAST(? AS UUID) AND U.TRANSACTION_ID = CAST(? AS UUID))";
+
+	public static final String CANCEL_TRANSACTION_OFFER_USES = "UPDATE WEALTH_OFFER_USES SET STATUS = 'cancelled', CREDITED_TRANSACTION_ID = NULL, CREDITED_ON = NULL, UPDATED_AT = NOW() "
+			+ "WHERE USER_ID = CAST(? AS UUID) AND TRANSACTION_ID = CAST(? AS UUID) AND STATUS <> 'cancelled'";
+
+	public static final String DELETE_TRANSACTION = "DELETE FROM WEALTH_TRANSACTIONS WHERE ID = CAST(? AS UUID) AND USER_ID = CAST(? AS UUID)";
+
+	// ---- statement lines: matching, and the workflow table for the doubtful ones (table wealth_transaction_workflow) ----
+	// the caller's transactions on one account with the same amount and direction within a day of the statement line (a dismissed alert and a copy are not candidates)
+	public static final String FIND_STATEMENT_MATCHES = "SELECT " + TRANSACTION_COLUMNS + " FROM WEALTH_TRANSACTIONS T LEFT JOIN " + WEALTH_ACCOUNTS
+			+ " A ON A.USER_ID = T.USER_ID AND A.ID = T.ACCOUNT_ID WHERE T.USER_ID = CAST(? AS UUID) AND (CAST(? AS UUID) IS NULL OR T.ACCOUNT_ID IS NULL OR T.ACCOUNT_ID = CAST(? AS UUID)) AND T.AMOUNT = ? AND T.DUPLICATE_OF IS NULL "
+			+ "AND T.REVIEW_STATUS <> 'dismissed' AND T.OCCURRED_ON BETWEEN CAST(? AS DATE) - 1 AND CAST(? AS DATE) + 1 "
+			+ "AND (CASE WHEN T.KIND = 'income' OR T.CATEGORY ~* 'received' THEN 'credit' ELSE 'debit' END) = ? ORDER BY T.OCCURRED_ON, T.CREATED_AT";
+
+	public static final String FIND_TRANSACTIONS_BY_IDS = "SELECT " + TRANSACTION_COLUMNS + " FROM WEALTH_TRANSACTIONS T LEFT JOIN " + WEALTH_ACCOUNTS
+			+ " A ON A.USER_ID = T.USER_ID AND A.ID = T.ACCOUNT_ID WHERE T.USER_ID = CAST(? AS UUID) AND T.ID = ANY (CAST(STRING_TO_ARRAY(?, ',') AS UUID[])) ORDER BY T.OCCURRED_ON, T.CREATED_AT";
+
+	public static final String COUNT_TRANSACTION_REFERENCE = "SELECT COUNT(*) FROM WEALTH_TRANSACTIONS WHERE USER_ID = CAST(? AS UUID) AND EXTERNAL_REF = ?";
+
+	public static final String FIND_ACCOUNT_IDS_BY_DIGITS = "SELECT ID FROM " + WEALTH_ACCOUNTS + " WHERE USER_ID = CAST(? AS UUID) AND STATUS = 'active' AND MASKED_IDENTIFIER = ?";
+
+	public static final String INSERT_WORKFLOW = "INSERT INTO WEALTH_TRANSACTION_WORKFLOW (USER_ID, SOURCE, SOURCE_REF, OCCURRED_ON, DESCRIPTION, AMOUNT, DIRECTION, ACCOUNT_ID, ACCOUNT_HINT, REASON, CANDIDATE_IDS) "
+			+ "VALUES (CAST(? AS UUID), ?, ?, CAST(? AS DATE), ?, ?, ?, CAST(? AS UUID), ?, ?, CAST(STRING_TO_ARRAY(?, ',') AS UUID[])) ON CONFLICT (USER_ID, SOURCE_REF) DO NOTHING RETURNING ID";
+
+	public static final String COUNT_WORKFLOW_REFERENCE = "SELECT COUNT(*) FROM WEALTH_TRANSACTION_WORKFLOW WHERE USER_ID = CAST(? AS UUID) AND SOURCE_REF = ?";
+
+	private static final String WORKFLOW_COLUMNS = "ID, SOURCE, SOURCE_REF, TO_CHAR(OCCURRED_ON, 'YYYY-MM-DD') AS OCCURRED_ON, DESCRIPTION, AMOUNT, DIRECTION, ACCOUNT_ID, ACCOUNT_HINT, REASON, "
+			+ "ARRAY_TO_STRING(CANDIDATE_IDS, ',') AS CANDIDATE_IDS, STATUS";
+
+	public static final String FIND_OPEN_WORKFLOW = "SELECT " + WORKFLOW_COLUMNS + " FROM WEALTH_TRANSACTION_WORKFLOW WHERE USER_ID = CAST(? AS UUID) AND STATUS = 'open' ORDER BY OCCURRED_ON DESC, CREATED_AT DESC";
+
+	public static final String FIND_WORKFLOW = "SELECT " + WORKFLOW_COLUMNS + " FROM WEALTH_TRANSACTION_WORKFLOW WHERE USER_ID = CAST(? AS UUID) AND ID = CAST(? AS UUID)";
+
+	// only a line that is still open can be decided, and only once (nothing is returned for one decided meanwhile)
+	public static final String DECIDE_WORKFLOW = "UPDATE WEALTH_TRANSACTION_WORKFLOW SET STATUS = ?, DECIDED_AT = NOW(), DECIDED_BY = CAST(? AS UUID), UPDT_DT = NOW() "
+			+ "WHERE USER_ID = CAST(? AS UUID) AND ID = CAST(? AS UUID) AND STATUS = 'open' RETURNING ID";
+
 	// ---- menus (table wealth_menus) ----
 	public static final String FIND_MENUS = "SELECT MENU_KEY, PARENT_KEY, LABEL, ROUTE, MENU_GROUP, SORT_ORDER, ADMIN_ONLY, ACTIVE, CRTD_DT, CRTD_BY, UPDT_DT, UPDT_BY "
 			+ "FROM WEALTH_MENUS ORDER BY SORT_ORDER, MENU_KEY";
@@ -201,6 +366,11 @@ public final class QueryConstants {
 
 	// ---- fetched investments (tables wealth_instruments, wealth_holdings, wealth_instrument_prices) ----
 	// an existing instrument keeps everything it has; only an empty ISIN or exchange is filled in (the update also makes RETURNING give its id)
+	// the broker cash: the latest balance of each active rupee account valued by its holdings
+	public static final String FIND_HOLDING_ACCOUNT_CASH_BY_USER = "SELECT B.ACCOUNT_ID, B.AS_OF, B.BALANCE, B.STATUS FROM " + WEALTH_V_LATEST_BALANCES + " B JOIN " + WEALTH_ACCOUNTS
+			+ " A ON A.ID = B.ACCOUNT_ID JOIN " + WEALTH_ACCOUNT_SUBTYPES + " S ON S.CODE = A.SUBTYPE_CODE WHERE A.USER_ID = CAST(? AS UUID) AND A.STATUS = 'active' "
+			+ "AND S.VALUATION = 'holdings' AND TRIM(A.CURRENCY) = 'INR'";
+
 	public static final String UPSERT_INSTRUMENT = "INSERT INTO WEALTH_INSTRUMENTS (ASSET_CLASS, SYMBOL, NAME, CURRENCY, UNIT, PRICE_SOURCE, PRICE_SOURCE_SYMBOL, ISIN, EXCHANGE) "
 			+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (ASSET_CLASS, SYMBOL) DO UPDATE SET ISIN = COALESCE(WEALTH_INSTRUMENTS.ISIN, EXCLUDED.ISIN), "
 			+ "EXCHANGE = COALESCE(WEALTH_INSTRUMENTS.EXCHANGE, EXCLUDED.EXCHANGE) RETURNING ID";

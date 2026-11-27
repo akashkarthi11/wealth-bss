@@ -51,7 +51,8 @@ public class ThirdPartyServiceImple implements IfThirdPartyService {
 	@Override
 	public List<ThirdPartyDto> list() {
 		requestContextService.requireAdmin();
-		return connectionDao.findAll().stream().map(this::toDto).toList();
+		// The Gmail rows have their own cards (Connections and My connections), not a key box here.
+		return connectionDao.findAll().stream().filter(row -> !row.getProvider().startsWith(WealthServiceConstants.GMAIL_APP)).map(this::toDto).toList();
 	}
 
 	@Override
@@ -125,6 +126,24 @@ public class ThirdPartyServiceImple implements IfThirdPartyService {
 		requestContextService.requireAdmin();
 		WealthConnectionEntity row = find(request);
 		connectionDao.delete(row.getProvider());
+	}
+
+	@Override
+	public com.wealth.common.model.dto.admin.ConnectionsOverviewDto overview() {
+		boolean admin = true;
+		try {
+			requestContextService.requireAdmin();
+		} catch (KarthiException e) {
+			admin = false;
+		}
+		com.wealth.common.model.dto.admin.ConnectionsOverviewDto result = new com.wealth.common.model.dto.admin.ConnectionsOverviewDto();
+		result.setAdmin(admin);
+		result.setMain(connectionDao.overview("main", ""));
+		if (admin) {
+			result.setCommon(connectionDao.overview("common", ""));
+		}
+		result.setUser(connectionDao.overview("user", admin ? "" : RequestHeaderUtil.getUserId()));
+		return result;
 	}
 
 	// A real sign-in, so a wrong PIN or TOTP secret shows up on Test; the reason is logged without any secret.

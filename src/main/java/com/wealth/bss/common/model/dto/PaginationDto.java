@@ -17,4 +17,12 @@ public class PaginationDto implements Serializable {
 	private int pageNo;
 	private int pageSize;
 	private String sortBy;
+	// a list's filters and the keyset position of its last row (empty = none): kind, account, days (YYYY-MM-DD), and the day, creation time and id of the row to continue after
+	private String kind;
+	private String accountId;
+	private String fromDay;
+	private String toDay;
+	private String cursorDay;
+	private String cursorCreated;
+	private String cursorId;
 }

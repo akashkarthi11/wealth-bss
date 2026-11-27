@@ -1,5 +1,7 @@
 package com.wealth.bss.constants;
 
+import java.util.List;
+
 public final class WealthServiceConstants {
 
 	private WealthServiceConstants() {
@@ -74,9 +76,83 @@ public final class WealthServiceConstants {
 	public static final String ACCOUNTS_SUBTYPES = "/subtypes";
 	public static final String ACCOUNTS_SPLITS_LIST = "/splits/list";
 	public static final String ACCOUNTS_REFRESH = "/refresh";
+	public static final String ACCOUNTS_CREATE = "/create";
+	public static final String ACCOUNTS_BALANCE_RECORD = "/balances/record";
+	public static final String ACCOUNTS_FD_TERMS_UPDATE = "/fd-terms/update";
+	public static final String VALUATION_BALANCE = "balance";
+	public static final String BALANCE_VERIFIED = "verified";
+	public static final String BALANCE_REPORTED = "reported";
+	public static final String BALANCE_STALE = "stale";
+	public static final double BALANCE_ABS_MAX = 1e12;
+	public static final int BALANCE_NOTE_MAX_LENGTH = 300;
+	public static final String BALANCE_ALREADY_STORED = "already_stored";
+	public static final List<String> SUBTYPES_WITH_ACCOUNT_COPY = List.of("savings", "current");
+	// adding an account: limits, currencies, the fixed-deposit type and its allowed payout and compounding
+	public static final int ACCOUNT_TEXT_MAX_LENGTH = 80;
+	public static final int ACCOUNT_MASK_MAX_LENGTH = 20;
+	public static final String CURRENCY_USD = "USD";
+	public static final String SUBTYPE_FIXED_DEPOSIT = "fixed_deposit";
+	public static final String SUBTYPE_US_BROKERAGE = "us_brokerage";
+	public static final List<String> FD_PAYOUTS = List.of("cumulative", "monthly", "quarterly", "yearly");
+	public static final List<String> FD_COMPOUNDING = List.of("simple", "monthly", "quarterly", "half_yearly", "yearly");
 	public static final String INVESTMENTS_BASE = "/wealth-service/api/v1/investments";
 	public static final String INVESTMENTS_LIST = "/list";
 	public static final String INVESTMENTS_REFRESH = "/refresh";
+	public static final String TRANSACTIONS_BASE = "/wealth-service/api/v1/transactions";
+	public static final String TRANSACTIONS_LIST = "/list";
+	public static final String TRANSACTIONS_SUMMARY = "/summary";
+	public static final String TRANSACTIONS_REFRESH = "/refresh";
+	public static final String TRANSACTIONS_CREATE = "/create";
+	public static final String TRANSACTIONS_DELETE = "/delete";
+	public static final String TRANSACTIONS_WORKFLOW_LIST = "/workflow/list";
+	public static final String TRANSACTIONS_WORKFLOW_DECIDE = "/workflow/decide";
+	// statement lines: where a transaction came from, what it is called when nothing better is known, and how alike two descriptions must be to be the same payment
+	public static final String STATEMENT_REF_PREFIX = "stmt:";
+	public static final String STATEMENT_CATEGORY = "Bank statement";
+	public static final String STATEMENT_KIND_DEBIT = "expense";
+	public static final String STATEMENT_KIND_INCOME = "income";
+	public static final String DIRECTION_DEBIT = "debit";
+	public static final String DIRECTION_CREDIT = "credit";
+	public static final String WORKFLOW_POSSIBLE_DUPLICATE = "possible_duplicate";
+	public static final String WORKFLOW_PARSE_UNSURE = "parse_unsure";
+	public static final String WORKFLOW_SUSPICIOUS = "suspicious";
+	public static final String WORKFLOW_SOURCE_ALERT = "alert";
+	public static final String WORKFLOW_SOURCE_STATEMENT = "statement";
+	public static final String REVIEW_ACCEPTED = "accepted";
+	public static final String WORKFLOW_OPEN = "open";
+	public static final String WORKFLOW_MERGED = "merged";
+	public static final String WORKFLOW_ACCEPTED = "accepted";
+	public static final String WORKFLOW_DISMISSED = "dismissed";
+	public static final String DECISION_MERGE = "merge";
+	public static final String DECISION_ACCEPT = "accept";
+	public static final String DECISION_DISMISS = "dismiss";
+	public static final double STATEMENT_SIMILARITY_MIN = 0.2;
+	public static final int STATEMENT_TOKEN_MIN_LENGTH = 3;
+	public static final int STATEMENT_DESCRIPTION_MAX_LENGTH = 300;
+	public static final int STATEMENT_REF_MAX_LENGTH = 200;
+	public static final int STATEMENT_DIGITS_MAX_LENGTH = 40;
+	public static final String NEXUS_READ_TRANSACTIONS = "transactions";
+	public static final String TRANSACTION_UNASSIGNED = "Unassigned";
+	public static final int TRANSACTIONS_PAGE_DEFAULT = 50;
+	public static final int TRANSACTIONS_PAGE_MAX = 200;
+	public static final int TRANSACTION_SEARCH_MAX_LENGTH = 100;
+	public static final int TRANSACTION_CATEGORY_MAX_LENGTH = 60;
+	public static final int TRANSACTION_DESCRIPTION_MAX_LENGTH = 180;
+	public static final int TRANSACTION_REFERENCE_MAX_LENGTH = 120;
+	public static final double TRANSACTION_AMOUNT_MAX = 1e12;
+	public static final String DAY_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
+	public static final List<String> TRANSACTION_KINDS = List.of("income", "expense", "transfer", "investment", "liability");
+	public static final String INVESTMENTS_HOLDING_SAVE = "/holdings/save";
+	public static final String PRICE_SOURCE_MANUAL = "manual";
+	public static final String BROKER_CASH_NOTE = "Angel One funds: available cash (may include margin)";
+	public static final String UUID_PATTERN = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
+	public static final int HOLDING_NAME_MAX_LENGTH = 80;
+	public static final int HOLDING_SYMBOL_MAX_LENGTH = 40;
+	public static final double HOLDING_QUANTITY_MAX = 1e12;
+	public static final List<String> HOLDING_UNITS = List.of("share", "unit", "g");
+	// the asset classes an account type may hold
+	public static final java.util.Map<String, List<String>> HOLDING_ASSET_CLASSES = java.util.Map.of("demat_equity", List.of("indian_equity"), "mutual_fund", List.of("indian_mutual_fund"),
+			"us_brokerage", List.of("us_equity", "us_etf"), "digital_gold", List.of("precious_metal"), "digital_silver", List.of("precious_metal"));
 	public static final String PEOPLE_BASE = "/wealth-service/api/v1/people";
 	public static final String PEOPLE_LIST = "/list";
 	public static final String PEOPLE_REFRESH = "/refresh";
@@ -130,7 +206,78 @@ public final class WealthServiceConstants {
 	public static final String THIRD_PARTY_TEST = "/test";
 	public static final String THIRD_PARTY_REMOVE = "/remove";
 	public static final String THIRD_PARTY_FETCH = "/fetch";
+	public static final String THIRD_PARTY_OVERVIEW = "/overview";
 	public static final String BROKER_ANGEL_ONE = "angel-one";
+	public static final String GMAIL_BASE = "/wealth-service/api/v1/gmail";
+	public static final String GMAIL_STATUS = "/status";
+	public static final String GMAIL_CONNECT_URL = "/connect-url";
+	public static final String GMAIL_CONNECT_FINISH = "/connect-finish";
+	public static final String GMAIL_TEST = "/test";
+	public static final String GMAIL_DISCONNECT = "/disconnect";
+	public static final String GMAIL_APP_SAVE = "/app-save";
+	public static final String GMAIL_APP_REMOVE = "/app-remove";
+	public static final String GMAIL_STATEMENT_SAVE = "/statement-save";
+	public static final String GMAIL_STATEMENT_CLEAR = "/statement-clear";
+	public static final String GMAIL_STATEMENT_REVEAL = "/statement-reveal";
+	public static final String GMAIL_STATEMENTS = "/statements";
+	public static final String GMAIL_STATEMENT_LIST = "/statement-list";
+	public static final String GMAIL_STATEMENT_ACCEPT = "/statement-accept";
+	public static final String GMAIL_STATEMENT_HISTORY = "/statement-history";
+	public static final String GMAIL_STATEMENT_UPLOAD = "/statement-upload";
+	public static final String GMAIL_STATEMENT_RETRY = "/statement-retry";
+	public static final String GMAIL_STATEMENT_DOWNLOAD = "/statement-download";
+	public static final String BROKER_BASE = "/wealth-service/api/v1/broker";
+	public static final String BROKER_STATUS = "/status";
+	public static final String BROKER_SAVE = "/save";
+	public static final String BROKER_TEST = "/test";
+	public static final String BROKER_FETCH = "/fetch";
+	public static final String BROKER_REMOVE = "/remove";
+	public static final int BROKER_VALUE_MAX = 200;
+	public static final String GEMINI_PROVIDER = "gemini";
+	public static final String GEMINI_MODEL = "gemini-2.5-flash";
+	public static final int AI_TEXT_MAX = 60_000;
+	public static final int AI_ROWS_MAX = 500;
+	public static final int AI_STATEMENTS_PER_READ = 6;
+	public static final String STATEMENT_OPENED = "opened";
+	public static final String STATEMENT_LOCKED = "locked";
+	public static final String STATEMENT_FAILED = "failed";
+	public static final String STATEMENT_ORIGIN_GMAIL = "gmail";
+	public static final String STATEMENT_ORIGIN_UPLOAD = "upload";
+	public static final String STATEMENT_UPLOAD_REF = "upload:";
+	public static final int STATEMENT_FILE_NAME_MAX = 200;
+	public static final int STATEMENT_PASSWORD_MAX = 100;
+	// Statement PDFs from these senders (never a duplicate copy); {days} is how far back, set in Connections > Common. Opened in memory only.
+	public static final String GMAIL_STATEMENT_QUERY = "has:attachment filename:pdf subject:statement -subject:duplicate newer_than:{days}d (from:noreply@slice.bank.in "
+			+ "OR from:roar@unitybank.co.in OR from:customercommunication@unitybank.co.in OR from:Emailstatements.cards@hdfcbank.bank.in "
+			+ "OR from:noreply-estatement@alerts.bankofindia.bank.in)";
+	public static final String GMAIL_DAYS_TOKEN = "{days}";
+	// Defaults and limits for the three numbers: statement days and mails a read, and alert days.
+	public static final int GMAIL_STATEMENT_DAYS_DEFAULT = 180;
+	public static final int GMAIL_STATEMENT_MAX_DEFAULT = 40;
+	public static final int GMAIL_ALERT_DAYS_DEFAULT = 35;
+	public static final int GMAIL_DAYS_MIN = 7;
+	public static final int GMAIL_DAYS_MAX = 730;
+	public static final int GMAIL_MAILS_MIN = 1;
+	public static final int GMAIL_MAILS_MAX = 100;
+	public static final String GMAIL_FETCH = "/fetch";
+	public static final String GMAIL_PENDING = "/pending";
+	public static final String GMAIL_REVIEW = "/review";
+	// Only the transaction alerts are searched (never OTP or service mails), from the last {days} days (set in Connections > Common), at most 100 a read. A mail is read once: its id is the transaction's external_ref.
+	public static final String GMAIL_ALERT_QUERY = "((from:alerts@hdfcbank.bank.in subject:(debited OR \"UPI txn\" OR \"payment was made\")) "
+			+ "OR (from:noreply@slice.bank.in subject:(debited OR received))) newer_than:{days}d";
+	public static final int GMAIL_FETCH_MAX = 100;
+	public static final String GMAIL_REF_PREFIX = "gmail:";
+	public static final String GMAIL_CATEGORY = "Bank alert";
+	public static final String GMAIL_ACCEPT = "accept";
+	public static final String GMAIL_DISMISS = "dismiss";
+	// gmail: the Google client in the main and common tables. gmail-user: each user's mailbox token in the user table.
+	public static final String GMAIL_APP = "gmail";
+	public static final String GMAIL_USER = "gmail-user";
+	public static final String GMAIL_CALLBACK_PATH = "/my-connections/gmail/callback";
+	public static final int GMAIL_VALUE_MAX_LENGTH = 200;
+	public static final int GMAIL_REDIRECT_MAX_LENGTH = 300;
+	public static final int GMAIL_CODE_MAX_LENGTH = 2000;
+	public static final long GMAIL_STATE_MINUTES = 10;
 	public static final String BROKER_ACCOUNT_KEY = "angel-one-demat";
 	public static final String BROKER_BANK_NAME = "Angel One";
 	public static final String BROKER_ACCOUNT_NAME = "Demat";

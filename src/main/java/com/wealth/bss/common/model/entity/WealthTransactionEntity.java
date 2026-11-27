@@ -17,6 +17,17 @@ public class WealthTransactionEntity extends GenericEntity {
 	private String category;
 	private BigDecimal amount;
 	private String day;
+	private String userId;
+	private String kind;
+	private String accountId;
+	// the account's label: name and last digits, or Unassigned
+	private String account;
+	private String occurredOn;
+	private String externalRef;
+	private String reviewStatus;
+	private String duplicateOf;
+	private String createdKey;
+	private boolean inactive;
 
 	@Override
 	public String tableName() {

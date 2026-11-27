@@ -112,6 +112,50 @@ class ThirdPartyServiceImpleTest {
 		assertNull(list.get(1).getKeyHint());
 	}
 
+	private static com.wealth.common.model.dto.admin.ConnectionOverviewRowDto overviewRow(String provider, String email) {
+		com.wealth.common.model.dto.admin.ConnectionOverviewRowDto row = new com.wealth.common.model.dto.admin.ConnectionOverviewRowDto();
+		row.setProvider(provider);
+		row.setUserEmail(email);
+		return row;
+	}
+
+	@Test
+	void anAdminSeesEveryPartAndEveryUsersConnections() {
+		when(dao.overview("main", "")).thenReturn(List.of(overviewRow("gemini", null), overviewRow("gmail", null)));
+		when(dao.overview("common", "")).thenReturn(List.of(overviewRow("gmail", null)));
+		when(dao.overview("user", "")).thenReturn(List.of(overviewRow("gmail-user", "one@example.com"), overviewRow("gmail-user", "two@example.com")));
+
+		var overview = service.overview();
+
+		assertTrue(overview.isAdmin());
+		assertEquals(2, overview.getMain().size());
+		assertEquals(1, overview.getCommon().size());
+		assertEquals(2, overview.getUser().size());
+	}
+
+	@Test
+	void aUserSeesOnlyTheirOwnConnectionsAndNoCommonKeys() {
+		com.wealth.common.utils.generic.RequestHeaderUtil.setUserId("user-1");
+		doThrow(new KarthiException(BaseError.ADMIN_ONLY_ACTION)).when(context).requireAdmin();
+		when(dao.overview("main", "")).thenReturn(List.of(overviewRow("gmail", null)));
+		when(dao.overview("user", "user-1")).thenReturn(List.of(overviewRow("gmail-user", "me@example.com")));
+
+		var overview = service.overview();
+
+		assertFalse(overview.isAdmin());
+		assertEquals(1, overview.getMain().size());
+		assertTrue(overview.getCommon().isEmpty(), "the common keys are for an admin");
+		assertEquals(List.of("me@example.com"), overview.getUser().stream().map(r -> r.getUserEmail()).toList());
+		verify(dao, never()).overview("common", "");
+		verify(dao, never()).overview("user", "");
+	}
+
+	@Test
+	void theGmailRowsAreNotInTheProviderList() {
+		when(dao.findAll()).thenReturn(List.of(row("gemini", null), row("gmail", null), row("gmail-user", null)));
+		assertEquals(List.of("gemini"), service.list().stream().map(ThirdPartyDto::getProvider).toList());
+	}
+
 	@Test
 	void aKeyIsEncryptedWithItsHintAndAnEmptyKeyKeepsTheSavedOne() {
 		service.save(save("gemini", " Gemini ", "https://generativelanguage.googleapis.com/", "AIza-secret-1234", true, 2));

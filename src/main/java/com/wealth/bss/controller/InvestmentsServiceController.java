@@ -10,6 +10,8 @@ import com.wealth.common.generic.ApiResponseTemplate;
 import com.wealth.common.generic.BaseError;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
+import com.wealth.common.model.dto.invest.HoldingDto;
+import com.wealth.common.model.dto.invest.HoldingSaveRequestDto;
 import com.wealth.common.model.dto.invest.InvestmentsDto;
 
 @RestController
@@ -29,6 +31,12 @@ public class InvestmentsServiceController implements IfInvestmentsServiceContrac
 	public ResponseEntity<ApiResponse<InvestmentsDto, Void>> list() throws KarthiException {
 		LOGGER.info("Entering list");
 		return responseTemplate.apires(investmentsService.list(), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<HoldingDto, Void>> saveHolding(HoldingSaveRequestDto request) throws KarthiException {
+		LOGGER.info("Entering saveHolding");
+		return responseTemplate.apires(investmentsService.saveHolding(request), BaseError.Success);
 	}
 
 	@Override

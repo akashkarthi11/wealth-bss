@@ -70,6 +70,35 @@ public class WealthConnectionDaoImple extends WealthBaseDaoImple implements IfWe
 
 	@Override
 	@Transactional
+	public boolean clearCredential(String provider) {
+		String methodName = "clearCredential";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		setActor(new WealthConnectionEntity());
+		int updated = jdbcTemplate.update(QueryConstants.CLEAR_CONNECTION_CREDENTIAL, provider);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | updated=" + updated);
+		return updated > 0;
+	}
+
+	@Override
+	public List<com.wealth.common.model.dto.admin.ConnectionOverviewRowDto> overview(String part, String userId) {
+		String methodName = "overview";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName + " | " + part);
+		BeanPropertyRowMapper<com.wealth.common.model.dto.admin.ConnectionOverviewRowDto> mapper = new BeanPropertyRowMapper<>(com.wealth.common.model.dto.admin.ConnectionOverviewRowDto.class);
+		List<com.wealth.common.model.dto.admin.ConnectionOverviewRowDto> rows;
+		if ("common".equals(part)) {
+			rows = jdbcTemplate.query(QueryConstants.OVERVIEW_COMMON_CONNECTIONS, mapper);
+		} else if ("user".equals(part)) {
+			String who = userId == null ? "" : userId;
+			rows = jdbcTemplate.query(QueryConstants.OVERVIEW_USER_CONNECTIONS, mapper, who, who);
+		} else {
+			rows = jdbcTemplate.query(QueryConstants.OVERVIEW_MAIN_CONNECTIONS, mapper);
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
+		return rows;
+	}
+
+	@Override
+	@Transactional
 	public boolean delete(String provider) {
 		String methodName = "delete";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);

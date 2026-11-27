@@ -15,8 +15,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import com.wealth.bss.common.model.dao.IfWealthAccountDao;
 import com.wealth.bss.common.model.dao.IfWealthInvestmentDao;
+import com.wealth.bss.serviceinterface.IfRequestContextService;
 import com.wealth.bss.common.model.entity.WealthHoldingDetailEntity;
+import com.wealth.common.generic.BaseError;
+import com.wealth.common.generic.KarthiException;
 import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.common.model.dto.CachedValueDto;
 import com.wealth.common.model.dto.invest.HoldingDto;
@@ -27,6 +31,8 @@ class InvestmentsServiceImpleTest {
 
 	private IfWealthInvestmentDao dao;
 	private IfNexusReadService nexus;
+	private IfWealthAccountDao accounts;
+	private IfRequestContextService context;
 	private InvestmentsServiceImple service;
 
 	@BeforeEach
@@ -34,7 +40,9 @@ class InvestmentsServiceImpleTest {
 		dao = mock(IfWealthInvestmentDao.class);
 		nexus = mock(IfNexusReadService.class);
 		nexusPassesThrough(nexus);
-		service = new InvestmentsServiceImple(dao, nexus);
+		accounts = mock(IfWealthAccountDao.class);
+		context = mock(IfRequestContextService.class);
+		service = new InvestmentsServiceImple(dao, nexus, accounts, context);
 		RequestHeaderUtil.setUserId("2a7014a8-9cf0-4d39-bed2-c83a83eddf0c");
 	}
 
@@ -146,5 +154,107 @@ class InvestmentsServiceImpleTest {
 		assertEquals(0, result.getHoldingCount());
 		assertEquals(0, BigDecimal.ZERO.compareTo(result.getInvested()));
 		assertNull(result.getGainPercent());
+	}
+
+	// ---- a holding added by hand (admin) ----
+
+	private static final String ACCOUNT_ID = "11111111-2222-3333-4444-555555555555";
+
+	private void account(String subtype, String status, String currency) {
+		com.wealth.bss.common.model.entity.WealthAccountSubtypeEntity type = new com.wealth.bss.common.model.entity.WealthAccountSubtypeEntity();
+		type.setCode(subtype);
+		type.setValuation("holdings");
+		com.wealth.bss.common.model.entity.WealthAccountSubtypeEntity savings = new com.wealth.bss.common.model.entity.WealthAccountSubtypeEntity();
+		savings.setCode("savings");
+		savings.setValuation("balance");
+		org.mockito.Mockito.when(accounts.findAllSubtypes()).thenReturn(java.util.List.of(type, savings));
+		com.wealth.bss.common.model.entity.WealthAccountEntity entity = new com.wealth.bss.common.model.entity.WealthAccountEntity();
+		entity.setId(ACCOUNT_ID);
+		entity.setSubtypeCode(subtype);
+		entity.setStatus(status);
+		entity.setCurrency(currency);
+		org.mockito.Mockito.when(accounts.findById(org.mockito.ArgumentMatchers.any())).thenReturn(entity);
+		org.mockito.Mockito.when(dao.saveHolding(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn("inst-1");
+	}
+
+	private com.wealth.common.model.dto.invest.HoldingSaveRequestDto holdingOf(String assetClass, String name, String unit, String quantity) {
+		com.wealth.common.model.dto.invest.HoldingSaveRequestDto request = new com.wealth.common.model.dto.invest.HoldingSaveRequestDto();
+		request.setAccountId(ACCOUNT_ID);
+		request.setAssetClass(assetClass);
+		request.setName(name);
+		request.setUnit(unit);
+		request.setQuantity(new BigDecimal(quantity));
+		request.setInvestedValue(new BigDecimal("5000"));
+		request.setPrice(new BigDecimal("612.45"));
+		return request;
+	}
+
+	@Test
+	void anAdminAddsAMutualFundByHandAndItsPriceIsSavedAsAManualPrice() {
+		account("mutual_fund", "active", "INR");
+		WealthHoldingDetailEntity row = new WealthHoldingDetailEntity();
+		row.setAccountId(ACCOUNT_ID);
+		row.setInstrumentId("inst-1");
+		row.setQuantity(new BigDecimal("10"));
+		row.setPrice(new BigDecimal("612.45"));
+		row.setCurrency("INR");
+		org.mockito.Mockito.when(dao.findHoldingDetailsByUser(org.mockito.ArgumentMatchers.any())).thenReturn(java.util.List.of(row));
+
+		var saved = service.saveHolding(holdingOf("indian_mutual_fund", "Parag Parikh Flexi Cap", "unit", "10"));
+
+		org.mockito.Mockito.verify(dao).saveHolding(org.mockito.ArgumentMatchers.eq("owner"), org.mockito.ArgumentMatchers.eq(ACCOUNT_ID), org.mockito.ArgumentMatchers.eq("manual"),
+				org.mockito.ArgumentMatchers.argThat(h -> "PARAG-PARIKH-FLEXI-CAP".equals(h.getInstrument().getSymbol()) && "indian_mutual_fund".equals(h.getInstrument().getAssetClass())
+						&& "unit".equals(h.getInstrument().getUnit()) && "INR".equals(h.getInstrument().getCurrency()) && new BigDecimal("612.45").equals(h.getLastPrice())
+						&& new BigDecimal("10").equals(h.getQuantity())));
+		org.mockito.Mockito.verify(nexus).evict("investments", "2a7014a8-9cf0-4d39-bed2-c83a83eddf0c");
+		org.mockito.Mockito.verify(nexus).evict("accounts-overview", "2a7014a8-9cf0-4d39-bed2-c83a83eddf0c");
+		org.junit.jupiter.api.Assertions.assertEquals(0, new BigDecimal("6124.50").compareTo(saved.getCurrentValue()));
+	}
+
+	@Test
+	void digitalGoldIsHeldInGramsAndTheAssetClassMustFitTheAccountType() {
+		account("digital_gold", "active", "INR");
+		service.saveHolding(holdingOf("precious_metal", "Gold", "g", "2.5"));
+		org.mockito.Mockito.verify(dao).saveHolding(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+				org.mockito.ArgumentMatchers.argThat(h -> "GOLD".equals(h.getInstrument().getSymbol()) && "g".equals(h.getInstrument().getUnit())));
+
+		org.junit.jupiter.api.Assertions.assertEquals(BaseError.HOLDING_ACCOUNT_INVALID, org.junit.jupiter.api.Assertions
+				.assertThrows(KarthiException.class, () -> service.saveHolding(holdingOf("indian_mutual_fund", "A fund", "unit", "1"))).getMessage());
+	}
+
+	@Test
+	void theAccountMustBeTheCallersActiveHoldingsAccount() {
+		account("savings", "active", "INR");
+		org.junit.jupiter.api.Assertions.assertEquals(BaseError.HOLDING_ACCOUNT_INVALID, org.junit.jupiter.api.Assertions
+				.assertThrows(KarthiException.class, () -> service.saveHolding(holdingOf("precious_metal", "Gold", "g", "1"))).getMessage());
+		account("digital_gold", "closed", "INR");
+		org.junit.jupiter.api.Assertions.assertEquals(BaseError.HOLDING_ACCOUNT_INVALID, org.junit.jupiter.api.Assertions
+				.assertThrows(KarthiException.class, () -> service.saveHolding(holdingOf("precious_metal", "Gold", "g", "1"))).getMessage());
+		org.mockito.Mockito.when(accounts.findById(org.mockito.ArgumentMatchers.any())).thenReturn(null);
+		org.junit.jupiter.api.Assertions.assertEquals(BaseError.HOLDING_ACCOUNT_INVALID, org.junit.jupiter.api.Assertions
+				.assertThrows(KarthiException.class, () -> service.saveHolding(holdingOf("precious_metal", "Gold", "g", "1"))).getMessage());
+		org.mockito.Mockito.verify(dao, org.mockito.Mockito.never()).saveHolding(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+				org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	void theNameUnitQuantityPriceAndDateAreChecked() {
+		account("digital_gold", "active", "INR");
+		for (var bad : java.util.List.of(holdingOf("precious_metal", " ", "g", "1"), holdingOf("precious_metal", "Gold", "kg", "1"), holdingOf("precious_metal", "Gold", "g", "0"),
+				holdingOf("precious_metal", "x".repeat(81), "g", "1"))) {
+			org.junit.jupiter.api.Assertions.assertEquals(BaseError.HOLDING_INVALID, org.junit.jupiter.api.Assertions.assertThrows(KarthiException.class, () -> service.saveHolding(bad)).getMessage());
+		}
+		var noPrice = holdingOf("precious_metal", "Gold", "g", "1");
+		noPrice.setPrice(BigDecimal.ZERO);
+		var future = holdingOf("precious_metal", "Gold", "g", "1");
+		future.setAsOf(new java.sql.Timestamp(System.currentTimeMillis() + 3_600_000L));
+		for (var bad : java.util.List.of(noPrice, future)) {
+			org.junit.jupiter.api.Assertions.assertEquals(BaseError.HOLDING_INVALID, org.junit.jupiter.api.Assertions.assertThrows(KarthiException.class, () -> service.saveHolding(bad)).getMessage());
+		}
+		org.mockito.Mockito.doThrow(new KarthiException(BaseError.ADMIN_ONLY_ACTION)).when(context).requireAdmin();
+		org.junit.jupiter.api.Assertions.assertEquals(BaseError.ADMIN_ONLY_ACTION, org.junit.jupiter.api.Assertions
+				.assertThrows(KarthiException.class, () -> service.saveHolding(holdingOf("precious_metal", "Gold", "g", "1"))).getMessage());
+		org.mockito.Mockito.verify(dao, org.mockito.Mockito.never()).saveHolding(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+				org.mockito.ArgumentMatchers.any());
 	}
 }

@@ -12,7 +12,12 @@ import com.wealth.common.generic.ApiResponse;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.model.dto.AccountIdRequestDto;
 import com.wealth.common.model.dto.IdRequestDto;
+import com.wealth.common.model.dto.account.AccountCreateRequestDto;
+import com.wealth.common.model.dto.account.BalanceRecordRequestDto;
+import com.wealth.common.model.dto.account.BalanceRecordResultDto;
+import com.wealth.common.model.dto.account.FdTermsRequestDto;
 import com.wealth.common.model.dto.account.AccountDetailDto;
+import com.wealth.common.model.dto.account.AccountDto;
 import com.wealth.common.model.dto.account.AccountSplitDto;
 import com.wealth.common.model.dto.account.AccountSubtypeDto;
 import com.wealth.common.model.dto.account.AccountsOverviewDto;
@@ -26,6 +31,15 @@ public interface IfAccountsServiceContract {
 
 	@PostMapping(WealthServiceConstants.ACCOUNTS_REFRESH)
 	ResponseEntity<ApiResponse<AccountsOverviewDto, Void>> refresh() throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ACCOUNTS_CREATE)
+	ResponseEntity<ApiResponse<AccountDto, Void>> create(@RequestBody AccountCreateRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ACCOUNTS_BALANCE_RECORD)
+	ResponseEntity<ApiResponse<BalanceRecordResultDto, Void>> recordBalance(@RequestBody BalanceRecordRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.ACCOUNTS_FD_TERMS_UPDATE)
+	ResponseEntity<ApiResponse<AccountDto, Void>> updateFdTerms(@RequestBody FdTermsRequestDto request) throws KarthiException;
 
 	@PostMapping(WealthServiceConstants.ACCOUNTS_DETAIL)
 	ResponseEntity<ApiResponse<AccountDetailDto, Void>> detail(@RequestBody IdRequestDto request) throws KarthiException;
