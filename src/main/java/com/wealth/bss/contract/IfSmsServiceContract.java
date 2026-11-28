@@ -14,6 +14,7 @@ import com.wealth.common.model.dto.sms.SmsDeviceCreateRequestDto;
 import com.wealth.common.model.dto.sms.SmsDeviceDto;
 import com.wealth.common.model.dto.sms.SmsPushRequestDto;
 import com.wealth.common.model.dto.sms.SmsPushResultDto;
+import com.wealth.common.model.dto.sms.SmsTokenRequestDto;
 
 // The device calls need a signed-in user. The push is public (the interceptor lets the /sms-ingest prefix through): the phone's secret token travels in the body and is checked first.
 public interface IfSmsServiceContract {
@@ -29,4 +30,7 @@ public interface IfSmsServiceContract {
 
 	@PostMapping(WealthServiceConstants.SMS_PUSH)
 	ResponseEntity<ApiResponse<SmsPushResultDto, Void>> push(@RequestBody SmsPushRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.SMS_BANKS)
+	ResponseEntity<ApiResponse<List<String>, Void>> banks(@RequestBody SmsTokenRequestDto request) throws KarthiException;
 }

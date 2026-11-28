@@ -17,6 +17,7 @@ import com.wealth.common.model.dto.sms.SmsDeviceCreateRequestDto;
 import com.wealth.common.model.dto.sms.SmsDeviceDto;
 import com.wealth.common.model.dto.sms.SmsPushRequestDto;
 import com.wealth.common.model.dto.sms.SmsPushResultDto;
+import com.wealth.common.model.dto.sms.SmsTokenRequestDto;
 
 @RestController
 public class SmsServiceController implements IfSmsServiceContract {
@@ -53,5 +54,11 @@ public class SmsServiceController implements IfSmsServiceContract {
 	public ResponseEntity<ApiResponse<SmsPushResultDto, Void>> push(SmsPushRequestDto request) throws KarthiException {
 		LOGGER.info("Entering sms push");
 		return responseTemplate.apires(smsService.push(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<List<String>, Void>> banks(SmsTokenRequestDto request) throws KarthiException {
+		LOGGER.info("Entering sms banks");
+		return responseTemplate.apires(smsService.banks(request), BaseError.Success);
 	}
 }

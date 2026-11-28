@@ -17,7 +17,9 @@ import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.wealth.bss.common.model.dao.IfWealthAccountDao;
 import com.wealth.bss.common.model.dao.IfWealthSmsDeviceDao;
+import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthSmsDeviceEntity;
 import com.wealth.bss.common.utils.security.LoginRateLimiter;
 import com.wealth.bss.config.BankAlertParser;
@@ -34,6 +36,7 @@ import com.wealth.common.model.dto.sms.SmsDeviceDto;
 import com.wealth.common.model.dto.sms.SmsMessageDto;
 import com.wealth.common.model.dto.sms.SmsPushRequestDto;
 import com.wealth.common.model.dto.sms.SmsPushResultDto;
+import com.wealth.common.model.dto.sms.SmsTokenRequestDto;
 import com.wealth.common.model.dto.transaction.BankImportResultDto;
 import com.wealth.common.model.dto.transaction.BankLineDto;
 import com.wealth.common.utils.generic.RequestHeaderUtil;
@@ -47,17 +50,19 @@ public class SmsServiceImple implements IfSmsService {
 	private static final SecureRandom RANDOM = new SecureRandom();
 
 	private final IfWealthSmsDeviceDao deviceDao;
+	private final IfWealthAccountDao accountDao;
 	private final IfBankImportService importService;
 	private final LoginRateLimiter rateLimiter;
 	private final Clock clock;
 
 	@Autowired
-	public SmsServiceImple(IfWealthSmsDeviceDao deviceDao, IfBankImportService importService, LoginRateLimiter rateLimiter) {
-		this(deviceDao, importService, rateLimiter, Clock.system(ZONE));
+	public SmsServiceImple(IfWealthSmsDeviceDao deviceDao, IfWealthAccountDao accountDao, IfBankImportService importService, LoginRateLimiter rateLimiter) {
+		this(deviceDao, accountDao, importService, rateLimiter, Clock.system(ZONE));
 	}
 
-	SmsServiceImple(IfWealthSmsDeviceDao deviceDao, IfBankImportService importService, LoginRateLimiter rateLimiter, Clock clock) {
+	SmsServiceImple(IfWealthSmsDeviceDao deviceDao, IfWealthAccountDao accountDao, IfBankImportService importService, LoginRateLimiter rateLimiter, Clock clock) {
 		this.deviceDao = deviceDao;
+		this.accountDao = accountDao;
 		this.importService = importService;
 		this.rateLimiter = rateLimiter;
 		this.clock = clock;
@@ -145,6 +150,21 @@ public class SmsServiceImple implements IfSmsService {
 		}
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | read=" + result.getRead() + " saved=" + result.getSaved() + " review=" + result.getReview() + " skipped=" + result.getSkipped());
 		return result;
+	}
+
+	@Override
+	public List<String> banks(SmsTokenRequestDto request) {
+		String methodName = "banks";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		attempt(WealthServiceConstants.SMS_PUSH_RATE_KEY, WealthServiceConstants.SMS_PUSH_IP_LIMIT);
+		WealthSmsDeviceEntity device = deviceOf(request == null ? null : request.getToken());
+		PaginationDto owner = new PaginationDto();
+		owner.setUserId(device.getUserId());
+		List<String> banks = accountDao.findByUser(owner).stream()
+				.filter(account -> WealthServiceConstants.ACCOUNT_ACTIVE.equals(account.getStatus()) && account.getBankName() != null && !account.getBankName().isBlank())
+				.map(account -> account.getBankName().trim()).distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList();
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | banks=" + banks.size());
+		return banks;
 	}
 
 	// The phone a token belongs to. The token is checked for its shape first; a wrong, unknown or removed one gets one generic refusal, and repeated wrong ones from one address are stopped.

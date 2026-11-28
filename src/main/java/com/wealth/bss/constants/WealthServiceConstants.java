@@ -222,6 +222,7 @@ public final class WealthServiceConstants {
 	public static final String SMS_DEVICE_LIST = SMS_BASE + "/device/list";
 	public static final String SMS_DEVICE_REVOKE = SMS_BASE + "/device/revoke";
 	public static final String SMS_PUSH = "/wealth-service/api/v1/sms-ingest/push";
+	public static final String SMS_BANKS = "/wealth-service/api/v1/sms-ingest/banks";
 	public static final String ACTOR_SMS_DEVICE = "sms-device";
 	public static final String SMS_REF_PREFIX = "sms:";
 	public static final String SMS_CATEGORY = "Bank SMS";
