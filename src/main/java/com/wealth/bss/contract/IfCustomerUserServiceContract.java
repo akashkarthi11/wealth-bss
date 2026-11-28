@@ -10,6 +10,8 @@ import com.wealth.common.generic.ApiResponse;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.model.dto.customer.LoginRequestDto;
 import com.wealth.common.model.dto.customer.LoginResponseDto;
+import com.wealth.common.model.dto.customer.PasswordChangeRequestDto;
+import com.wealth.common.model.dto.customer.ProfileSaveRequestDto;
 import com.wealth.common.model.dto.customer.PasswordResetRequestDto;
 import com.wealth.common.model.dto.customer.RegisterRequestDto;
 import com.wealth.common.model.dto.customer.UserDto;
@@ -34,6 +36,12 @@ public interface IfCustomerUserServiceContract {
 	ResponseEntity<ApiResponse<Boolean, Void>> logout() throws KarthiException;
 
 	// Admin only.
+	@PostMapping(WealthServiceConstants.PROFILE_SAVE)
+	ResponseEntity<ApiResponse<UserDto, Void>> profileSave(@RequestBody ProfileSaveRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.PASSWORD_CHANGE)
+	ResponseEntity<ApiResponse<Boolean, Void>> changePassword(@RequestBody PasswordChangeRequestDto request) throws KarthiException;
+
 	@PostMapping(WealthServiceConstants.PASSWORD_RESET)
 	ResponseEntity<ApiResponse<Boolean, Void>> resetPassword(@RequestBody PasswordResetRequestDto request)
 			throws KarthiException;

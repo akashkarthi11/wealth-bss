@@ -23,6 +23,9 @@ public interface IfWealthUserDao {
 	// searchText carries the role; returns a comma-separated menu list, or null when none is saved.
 	String findMenusByRole(PaginationDto paginationDto);
 
+	// entity.id and the four profile values (null clears one); returns the user as saved, or null when the id is unknown.
+	WealthUserEntity updateProfile(WealthUserEntity entity);
+
 	// Every user, by email: id, email and role only (for the admin's Users screen).
 	List<WealthUserEntity> findAll();
 

@@ -6,6 +6,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wealth.bss.common.model.dao.IfWealthUserDao;
 import com.wealth.bss.common.model.dto.PaginationDto;
@@ -16,14 +17,24 @@ import com.wealth.bss.query.QueryConstants;
 import com.wealth.common.logger.KarthiLogger;
 
 @Repository
-public class WealthUserDaoImple implements IfWealthUserDao {
+public class WealthUserDaoImple extends WealthBaseDaoImple implements IfWealthUserDao {
 
 	private static final KarthiLogger LOGGER = new KarthiLogger(WealthUserDaoImple.class);
 
-	private final JdbcTemplate jdbcTemplate;
-
 	public WealthUserDaoImple(JdbcTemplate jdbcTemplate) {
-		this.jdbcTemplate = jdbcTemplate;
+		super(jdbcTemplate);
+	}
+
+	@Override
+	@Transactional
+	public WealthUserEntity updateProfile(WealthUserEntity entity) {
+		String methodName = "updateProfile";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		setActor(entity);
+		List<WealthUserEntity> rows = jdbcTemplate.query(QueryConstants.UPDATE_WEALTH_USER_PROFILE, new BeanPropertyRowMapper<>(WealthUserEntity.class), entity.getDisplayName(), entity.getMobile(),
+				entity.getPrefDateFormat(), entity.getPrefHome(), entity.getId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | updated=" + rows.size());
+		return rows.isEmpty() ? null : rows.get(0);
 	}
 
 	@Override

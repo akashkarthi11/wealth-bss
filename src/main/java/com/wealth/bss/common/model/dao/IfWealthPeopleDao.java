@@ -42,4 +42,17 @@ public interface IfWealthPeopleDao {
 
 	// Transfers sent or received that no entry is linked to yet, oldest first.
 	List<WealthTransactionEntity> findUnlinkedTransfers(PaginationDto paginationDto);
+
+	// The caller's transaction with what a split needs (kind, category, description, amount, day); splitStatus is "active" when it already has a split. Null when it is not theirs.
+	WealthTransactionEntity findTransactionForSplit(String userId, String transactionId);
+
+	// True when a person's entry is linked to the transaction.
+	boolean transactionLinkedToPerson(String userId, String transactionId);
+
+	// Marks the caller's active split cancelled (kept for the record, no longer counted); false when it is not theirs or already cancelled.
+	boolean cancelSplit(String userId, String splitId);
+
+	// In one transaction: finds or adds each person (a removed one is brought back), adds the split and its shares, and re-opens settled people. shares[i] belongs to people[i];
+	// mine is the owner's own part (null when the owner is not in the split). Returns the new split id. Throws when a person is not the caller's, is listed twice, or the transaction is already split.
+	String createSplit(String userId, WealthBillSplitEntity split, List<WealthPersonEntity> people, List<WealthBillSplitShareEntity> shares, WealthBillSplitShareEntity mine);
 }

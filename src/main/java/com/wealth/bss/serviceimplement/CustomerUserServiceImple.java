@@ -27,6 +27,8 @@ import com.wealth.common.logger.KarthiLogger;
 import com.wealth.common.model.dto.ThreadLocalDto;
 import com.wealth.common.model.dto.customer.LoginRequestDto;
 import com.wealth.common.model.dto.customer.LoginResponseDto;
+import com.wealth.common.model.dto.customer.PasswordChangeRequestDto;
+import com.wealth.common.model.dto.customer.ProfileSaveRequestDto;
 import com.wealth.common.model.dto.customer.PasswordResetRequestDto;
 import com.wealth.common.model.dto.customer.RegisterRequestDto;
 import com.wealth.common.model.dto.customer.UserDto;
@@ -39,6 +41,8 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 
 	private static final KarthiLogger LOGGER = new KarthiLogger(CustomerUserServiceImple.class);
 	private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+	private static final Pattern MOBILE = Pattern.compile("^[0-9+ -]{7,20}$");
+	private static final Pattern HOME_KEY = Pattern.compile("^[a-z0-9-]{1,40}$");
 	// Verified against for an unknown email, so a missing user costs the same time as a wrong password.
 	private static final String TIMING_HASH = "s1$AAECAwQFBgcICQoLDA0ODw$11kKyiyYAc8G7rp3KmncMc44YlkdllIqxOa7pq0fMaUtb3NvK4WtqmJiM16xEuVvAU9BejfXS-De92abLFHCng";
 
@@ -127,9 +131,92 @@ public class CustomerUserServiceImple implements IfCustomerUserService {
 		if (user == null) {
 			throw new KarthiException(BaseError.USER_NOT_FOUND);
 		}
+		return profileOf(user);
+	}
+
+	private UserDto profileOf(WealthUserEntity user) {
 		UserDto dto = GenericAssembler.toDTO(user, UserDto.class);
 		dto.setMenus(menusFor(user.getRole()));
+		dto.setDisplayName(user.getDisplayName());
+		dto.setMobile(user.getMobile());
+		dto.setDateFormat(user.getPrefDateFormat());
+		dto.setHomeScreen(user.getPrefHome());
 		return dto;
+	}
+
+	@Override
+	public UserDto profileSave(ProfileSaveRequestDto request) {
+		String methodName = "profileSave";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		ThreadLocalDto context = RequestHeaderUtil.getThreadLocalDto();
+		if (context == null) {
+			throw new KarthiException(BaseError.USER_NOT_FOUND);
+		}
+		if (request == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String name = blankToNull(request.getDisplayName());
+		String mobile = blankToNull(request.getMobile());
+		String format = blankToNull(request.getDateFormat());
+		String home = blankToNull(request.getHomeScreen());
+		if ((name != null && (name.length() > WealthServiceConstants.PROFILE_NAME_MAX || name.chars().anyMatch(c -> c < ' ' || c == 127))) || (mobile != null && !MOBILE.matcher(mobile).matches())
+				|| (format != null && !WealthServiceConstants.PROFILE_DATE_FORMATS.contains(format)) || (home != null && !HOME_KEY.matcher(home).matches())) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		WealthUserEntity entity = new WealthUserEntity();
+		entity.setId(context.getUserId());
+		entity.setDisplayName(name);
+		entity.setMobile(mobile);
+		entity.setPrefDateFormat(format);
+		entity.setPrefHome(home);
+		WealthUserEntity saved = wealthUserDao.updateProfile(entity);
+		if (saved == null) {
+			throw new KarthiException(BaseError.USER_NOT_FOUND);
+		}
+		requestContextService.evict(saved.getId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return profileOf(saved);
+	}
+
+	@Override
+	public void changePassword(PasswordChangeRequestDto request) {
+		String methodName = "changePassword";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		ThreadLocalDto context = RequestHeaderUtil.getThreadLocalDto();
+		if (context == null) {
+			throw new KarthiException(BaseError.USER_NOT_FOUND);
+		}
+		String current = requirePassword(request == null ? null : request.getCurrentPassword());
+		String next = requirePassword(request.getNewPassword());
+		PaginationDto lookup = new PaginationDto();
+		lookup.setId(context.getUserId());
+		WealthUserEntity user = wealthUserDao.findById(lookup);
+		if (user == null) {
+			throw new KarthiException(BaseError.USER_NOT_FOUND);
+		}
+		String emailKey = WealthServiceConstants.LOGIN_EMAIL_KEY_PREFIX + user.getEmail();
+		if (rateLimiter.count(emailKey) >= WealthServiceConstants.LOGIN_EMAIL_LIMIT) {
+			throw new KarthiException(BaseError.TOO_MANY_LOGIN_ATTEMPTS);
+		}
+		PaginationDto byEmail = new PaginationDto();
+		byEmail.setSearchText(user.getEmail());
+		WealthUserCredentialEntity credential = wealthUserDao.findCredentialByEmail(byEmail);
+		if (credential == null || !passwordUtil.matches(current, credential.getPasswordHash())) {
+			rateLimiter.attempt(emailKey, WealthServiceConstants.LOGIN_EMAIL_LIMIT, WealthServiceConstants.AUTH_WINDOW_SECONDS);
+			throw new KarthiException(BaseError.PASSWORD_MISMATCH);
+		}
+		throwOnPasswordProblem(next);
+		WealthUserEntity updated = wealthUserDao.updatePassword(credentialFor(user.getEmail(), next));
+		if (updated == null) {
+			throw new KarthiException(BaseError.USER_NOT_FOUND);
+		}
+		rateLimiter.reset(emailKey);
+		requestContextService.evict(updated.getId());
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+	}
+
+	private static String blankToNull(String text) {
+		return text == null || text.isBlank() ? null : text.trim();
 	}
 
 	@Override

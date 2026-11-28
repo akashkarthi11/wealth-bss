@@ -32,13 +32,18 @@ public class WealthTransactionDaoImple extends WealthBaseDaoImple implements IfW
 		return text(searchText).isEmpty() ? "" : "%" + searchText.toLowerCase().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
 	}
 
+	// "Travel" also matches "Travel / stay": the sub-categories of a category are those named "<category> / ...", with LIKE's wildcards escaped.
+	private static String subCategories(String category) {
+		return text(category).isEmpty() ? "" : category.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + " / %";
+	}
+
 	@Override
 	public List<WealthTransactionEntity> findPage(PaginationDto page) {
 		String methodName = "findPage";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
 		String q = text(page.getSearchText());
 		List<WealthTransactionEntity> rows = jdbcTemplate.query(QueryConstants.FIND_TRANSACTION_PAGE, new BeanPropertyRowMapper<>(WealthTransactionEntity.class), page.getUserId(),
-				text(page.getKind()), text(page.getKind()), text(page.getAccountId()), text(page.getAccountId()), text(page.getFromDay()), text(page.getFromDay()), text(page.getToDay()),
+				text(page.getKind()), text(page.getKind()), text(page.getCategory()), text(page.getCategory()), subCategories(page.getCategory()), text(page.getAccountId()), text(page.getAccountId()), text(page.getFromDay()), text(page.getFromDay()), text(page.getToDay()),
 				text(page.getToDay()), q, like(q), text(page.getCursorDay()), text(page.getCursorDay()), text(page.getCursorCreated()), text(page.getCursorId()), page.getPageSize());
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + rows.size());
 		return rows;

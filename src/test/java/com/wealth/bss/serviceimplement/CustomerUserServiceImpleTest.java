@@ -260,4 +260,109 @@ class CustomerUserServiceImpleTest {
 		service.logout();
 		verify(contextService).evict(ID);
 	}
+	private com.wealth.common.model.dto.customer.ProfileSaveRequestDto profile(String name, String mobile, String format, String home) {
+		com.wealth.common.model.dto.customer.ProfileSaveRequestDto r = new com.wealth.common.model.dto.customer.ProfileSaveRequestDto();
+		r.setDisplayName(name);
+		r.setMobile(mobile);
+		r.setDateFormat(format);
+		r.setHomeScreen(home);
+		return r;
+	}
+
+	private WealthUserEntity savedUser() {
+		WealthUserEntity user = new WealthUserEntity();
+		user.setId(ID);
+		user.setEmail("owner@example.com");
+		user.setRole("user");
+		user.setSessionVersion(3);
+		return user;
+	}
+
+	@Test
+	void aUserSavesTheirOwnProfileAndABlankValueClearsIt() {
+		callerIs("user");
+		when(dao.updateProfile(any(WealthUserEntity.class))).thenAnswer(call -> {
+			WealthUserEntity sent = call.getArgument(0);
+			WealthUserEntity back = savedUser();
+			back.setDisplayName(sent.getDisplayName());
+			back.setMobile(sent.getMobile());
+			back.setPrefDateFormat(sent.getPrefDateFormat());
+			back.setPrefHome(sent.getPrefHome());
+			return back;
+		});
+		when(dao.findMenusByRole(any(PaginationDto.class))).thenReturn("overview,banks");
+
+		UserDto saved = service.profileSave(profile("  Karthi  ", "+91 98765 43210", "iso", "banks"));
+		assertEquals("Karthi", saved.getDisplayName());
+		assertEquals("+91 98765 43210", saved.getMobile());
+		assertEquals("iso", saved.getDateFormat());
+		assertEquals("banks", saved.getHomeScreen());
+		org.mockito.ArgumentCaptor<WealthUserEntity> sent = org.mockito.ArgumentCaptor.forClass(WealthUserEntity.class);
+		verify(dao).updateProfile(sent.capture());
+		assertEquals(ID, sent.getValue().getId(), "always the caller's own row");
+
+		UserDto cleared = service.profileSave(profile("", "  ", null, ""));
+		assertNull(cleared.getDisplayName());
+		assertNull(cleared.getMobile());
+		assertNull(cleared.getDateFormat());
+		assertNull(cleared.getHomeScreen());
+	}
+
+	@Test
+	void aProfileWithAnInvalidValueIsRefusedAndNothingIsSaved() {
+		callerIs("user");
+		assertEquals(BaseError.INVALID_REQUEST, code(() -> service.profileSave(null)));
+		assertEquals(BaseError.INVALID_REQUEST, code(() -> service.profileSave(profile("x".repeat(61), null, null, null))));
+		assertEquals(BaseError.INVALID_REQUEST, code(() -> service.profileSave(profile("bad\nname", null, null, null))));
+		assertEquals(BaseError.INVALID_REQUEST, code(() -> service.profileSave(profile(null, "call me", null, null))));
+		assertEquals(BaseError.INVALID_REQUEST, code(() -> service.profileSave(profile(null, null, "long", null))));
+		assertEquals(BaseError.INVALID_REQUEST, code(() -> service.profileSave(profile(null, null, null, "Not A Key"))));
+		verify(dao, never()).updateProfile(any(WealthUserEntity.class));
+	}
+
+	private com.wealth.common.model.dto.customer.PasswordChangeRequestDto change(String current, String next) {
+		com.wealth.common.model.dto.customer.PasswordChangeRequestDto r = new com.wealth.common.model.dto.customer.PasswordChangeRequestDto();
+		r.setCurrentPassword(current);
+		r.setNewPassword(next);
+		return r;
+	}
+
+	@Test
+	void aUserChangesTheirOwnPasswordOnlyWithTheRightCurrentOneAndEveryOlderSessionEnds() {
+		callerIs("user");
+		when(dao.findById(any(PaginationDto.class))).thenReturn(savedUser());
+		when(dao.findCredentialByEmail(any(PaginationDto.class))).thenReturn(credential("user"));
+		when(limiter.count(anyString())).thenReturn(0L);
+		when(dao.updatePassword(any(WealthUserCredentialEntity.class))).thenReturn(savedUser());
+
+		assertEquals(BaseError.PASSWORD_MISMATCH, code(() -> service.changePassword(change("wrong-current-password", "another-long-password"))));
+		verify(limiter).attempt(eq("login:email:owner@example.com"), anyLong(), anyLong());
+		verify(dao, never()).updatePassword(any(WealthUserCredentialEntity.class));
+
+		service.changePassword(change(GOOD, "another-long-password"));
+		org.mockito.ArgumentCaptor<WealthUserCredentialEntity> hashed = org.mockito.ArgumentCaptor.forClass(WealthUserCredentialEntity.class);
+		verify(dao).updatePassword(hashed.capture());
+		assertEquals("owner@example.com", hashed.getValue().getEmail());
+		assertEquals(true, passwords.matches("another-long-password", hashed.getValue().getPasswordHash()), "the new password is stored hashed");
+		verify(contextService).evict(ID);
+		verify(limiter).reset("login:email:owner@example.com");
+	}
+
+	@Test
+	void aPasswordChangeIsRefusedForABadNewPasswordTooManyAttemptsOrNoCaller() {
+		callerIs("user");
+		when(dao.findById(any(PaginationDto.class))).thenReturn(savedUser());
+		when(dao.findCredentialByEmail(any(PaginationDto.class))).thenReturn(credential("user"));
+		when(limiter.count(anyString())).thenReturn(0L);
+		assertEquals(BaseError.PASSWORD_EMPTY, code(() -> service.changePassword(change(GOOD, ""))));
+		assertEquals(BaseError.PASSWORD_EMPTY, code(() -> service.changePassword(null)));
+		assertEquals(BaseError.PASSWORD_TOO_SHORT, code(() -> service.changePassword(change(GOOD, "short"))));
+		verify(dao, never()).updatePassword(any(WealthUserCredentialEntity.class));
+
+		when(limiter.count(anyString())).thenReturn(99L);
+		assertEquals(BaseError.TOO_MANY_LOGIN_ATTEMPTS, code(() -> service.changePassword(change(GOOD, "another-long-password"))));
+
+		RequestHeaderUtil.clear();
+		assertEquals(BaseError.USER_NOT_FOUND, code(() -> service.changePassword(change(GOOD, "another-long-password"))));
+	}
 }

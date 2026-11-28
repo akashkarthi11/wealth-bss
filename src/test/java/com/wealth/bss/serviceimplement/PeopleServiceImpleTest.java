@@ -3,6 +3,7 @@ package com.wealth.bss.serviceimplement;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -30,9 +31,13 @@ import com.wealth.bss.common.model.entity.WealthPersonEntryEntity;
 import com.wealth.bss.common.model.entity.WealthPersonRollupEntity;
 import com.wealth.bss.common.model.entity.WealthTransactionEntity;
 import com.wealth.bss.nexus.service.IfNexusReadService;
+import com.wealth.common.generic.KarthiException;
 import com.wealth.common.model.dto.CachedValueDto;
+import com.wealth.common.model.dto.people.BillSplitDto;
 import com.wealth.common.model.dto.people.PeopleOverviewDto;
 import com.wealth.common.model.dto.people.PersonDto;
+import com.wealth.common.model.dto.people.SplitCreateRequestDto;
+import com.wealth.common.model.dto.people.SplitPersonRequestDto;
 import com.wealth.common.utils.generic.RequestHeaderUtil;
 
 class PeopleServiceImpleTest {
@@ -295,6 +300,160 @@ class PeopleServiceImpleTest {
 		assertNull(bina.getItems().get(1).getDetail(), "no GST text when there is no tax");
 		assertTrue(bina.getItems().get(1).isPaid());
 		assertEquals("2026-11-25", bina.getItems().get(1).getPaidOn());
+	}
+
+	private static final String TX_ID = "11111111-1111-4111-8111-111111111111";
+
+	private WealthTransactionEntity bill(String kind, String category, String amount, String splitStatus) {
+		WealthTransactionEntity bill = new WealthTransactionEntity();
+		bill.setId(TX_ID);
+		bill.setKind(kind);
+		bill.setCategory(category);
+		bill.setDescription("Dinner at Sangeetha");
+		bill.setAmount(new BigDecimal(amount));
+		bill.setDay("2026-11-20");
+		bill.setSplitStatus(splitStatus);
+		return bill;
+	}
+
+	private SplitCreateRequestDto split(String mode, String tax, Boolean includeMe, String... names) {
+		SplitCreateRequestDto request = new SplitCreateRequestDto();
+		request.setTransactionId(TX_ID);
+		request.setMode(mode);
+		request.setIncludeMe(includeMe);
+		request.setTax(tax == null ? null : new BigDecimal(tax));
+		for (String name : names) {
+			SplitPersonRequestDto person = new SplitPersonRequestDto();
+			String[] parts = name.split("=");
+			person.setName(parts[0]);
+			person.setBase(parts.length > 1 ? new BigDecimal(parts[1]) : null);
+			request.getPeople().add(person);
+		}
+		return request;
+	}
+
+	private static String code(Runnable call) {
+		return assertThrows(KarthiException.class, call::run).getMessage();
+	}
+
+	@Test
+	void theSplitMathsSpreadsOddPaiseSoThePartsAddUpToTheBill() {
+		List<long[]> equal = PeopleServiceImple.computeShares(10000, 0, "equal", true, new long[2]);
+		assertEquals(3, equal.size());
+		assertEquals(3334, equal.get(0)[0], "the owner takes the odd paisa");
+		assertEquals(3333, equal.get(1)[0]);
+		assertEquals(3333, equal.get(2)[0]);
+
+		List<long[]> gst = PeopleServiceImple.computeShares(11800, 1800, "equal", false, new long[3]);
+		assertEquals(10000, gst.stream().mapToLong(s -> s[0]).sum());
+		assertEquals(1800, gst.stream().mapToLong(s -> s[1]).sum());
+
+		List<long[]> amounts = PeopleServiceImple.computeShares(11800, 1800, "amounts", true, new long[] { 5000, 2500 });
+		assertEquals(2500, amounts.get(0)[0], "the owner's part is what is left");
+		assertEquals(900, amounts.get(1)[1], "tax follows each part: 50 of 100 is half of 18");
+		assertEquals(450, amounts.get(2)[1]);
+		assertEquals(450, amounts.get(0)[1]);
+	}
+
+	@Test
+	void theSplitMathsRefusesAmountsThatDoNotFit() {
+		assertEquals("6052", code(() -> PeopleServiceImple.computeShares(10000, 0, "amounts", true, new long[] { 10001 })));
+		assertEquals("6052", code(() -> PeopleServiceImple.computeShares(10000, 0, "amounts", false, new long[] { 4000 })));
+		assertEquals("6052", code(() -> PeopleServiceImple.computeShares(10000, 10001, "equal", true, new long[1])));
+		assertEquals("6052", code(() -> PeopleServiceImple.computeShares(10000, 0, "amounts", true, new long[] { -1 })));
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void aBillIsSplitAndLinkedToItsTransactionWithTheCacheCleared() {
+		when(dao.findTransactionForSplit("2a7014a8-9cf0-4d39-bed2-c83a83eddf0c", TX_ID)).thenReturn(bill("expense", "Dining", "1180.00", null));
+		when(dao.createSplit(any(), any(), any(), any(), any())).thenReturn("split-1");
+
+		BillSplitDto dto = service.createSplit(split("equal", "180", true, "Arun S", "  Bina   K "));
+
+		assertEquals("split-1", dto.getId());
+		assertEquals(TX_ID, dto.getTransactionId());
+		assertEquals(new BigDecimal("1180.00"), dto.getTotal());
+		assertEquals(new BigDecimal("393.34"), dto.getMyShare());
+		assertEquals(new BigDecimal("786.66"), dto.getOthersOwe());
+		org.mockito.ArgumentCaptor<WealthBillSplitEntity> saved = org.mockito.ArgumentCaptor.forClass(WealthBillSplitEntity.class);
+		org.mockito.ArgumentCaptor<List<WealthPersonEntity>> who = org.mockito.ArgumentCaptor.forClass(List.class);
+		org.mockito.Mockito.verify(dao).createSplit(any(), saved.capture(), who.capture(), any(), any());
+		assertEquals(TX_ID, saved.getValue().getTransactionId());
+		assertEquals("Dinner at Sangeetha", saved.getValue().getTitle());
+		assertEquals("2026-11-20", saved.getValue().getOn());
+		assertEquals("Bina K", who.getValue().get(1).getName(), "extra spaces are squeezed");
+		org.mockito.Mockito.verify(nexus).evict("people", "2a7014a8-9cf0-4d39-bed2-c83a83eddf0c");
+		org.mockito.Mockito.verify(nexus).evict("transactions", "2a7014a8-9cf0-4d39-bed2-c83a83eddf0c");
+	}
+
+	@Test
+	void aTransferWithAPlainCategoryCountsAsMoneySentAndCanBeSplit() {
+		when(dao.findTransactionForSplit("2a7014a8-9cf0-4d39-bed2-c83a83eddf0c", TX_ID)).thenReturn(bill("transfer", "Transfers", "1500.00", null));
+		when(dao.createSplit(any(), any(), any(), any(), any())).thenReturn("split-2");
+
+		assertEquals("split-2", service.createSplit(split("equal", null, true, "Lavanya")).getId());
+	}
+
+	@Test
+	void aBillThatIsNotTheCallersOrNotSplittableOrAlreadySplitIsRefusedBeforeAnythingIsWritten() {
+		String user = "2a7014a8-9cf0-4d39-bed2-c83a83eddf0c";
+		assertEquals("6050", code(() -> service.createSplit(split("equal", null, true, "Arun"))), "not the caller's transaction");
+
+		when(dao.findTransactionForSplit(user, TX_ID)).thenReturn(bill("income", "Salary", "1000", null));
+		assertEquals("6050", code(() -> service.createSplit(split("equal", null, true, "Arun"))), "income cannot be split");
+
+		when(dao.findTransactionForSplit(user, TX_ID)).thenReturn(bill("transfer", "Transfer received", "1000", null));
+		assertEquals("6050", code(() -> service.createSplit(split("equal", null, true, "Arun"))), "only money sent can, not a transfer received");
+
+		when(dao.findTransactionForSplit(user, TX_ID)).thenReturn(bill("expense", "Dining", "1000", null));
+		when(dao.transactionLinkedToPerson(user, TX_ID)).thenReturn(true);
+		assertEquals("6050", code(() -> service.createSplit(split("equal", null, true, "Arun"))), "already linked to a person");
+
+		when(dao.transactionLinkedToPerson(user, TX_ID)).thenReturn(false);
+		when(dao.findTransactionForSplit(user, TX_ID)).thenReturn(bill("expense", "Dining", "1000", "active"));
+		assertEquals("6051", code(() -> service.createSplit(split("equal", null, true, "Arun"))), "already split");
+
+		org.mockito.Mockito.verify(dao, org.mockito.Mockito.never()).createSplit(any(), any(), any(), any(), any());
+	}
+
+	@Test
+	void aSplitWithBadPeopleOrAmountsIsRefused() {
+		String user = "2a7014a8-9cf0-4d39-bed2-c83a83eddf0c";
+		when(dao.findTransactionForSplit(user, TX_ID)).thenReturn(bill("transfer", "Transfer sent", "1000", null));
+		assertEquals("6053", code(() -> service.createSplit(split("equal", null, true, "Arun", "arun"))), "the same name twice");
+		assertEquals("6053", code(() -> service.createSplit(split("equal", null, true, "   "))), "a blank name");
+		assertEquals("6052", code(() -> service.createSplit(split("amounts", null, true, "Arun"))), "no amount given");
+		assertEquals("6052", code(() -> service.createSplit(split("amounts", null, false, "Arun=400"))), "amounts must add up when the owner is not in it");
+		assertEquals("611", code(() -> service.createSplit(split("half", null, true, "Arun"))));
+		assertEquals("611", code(() -> service.createSplit(split("equal", null, true))));
+		assertEquals("611", code(() -> service.createSplit(null)));
+		org.mockito.Mockito.verify(dao, org.mockito.Mockito.never()).createSplit(any(), any(), any(), any(), any());
+	}
+
+	private static com.wealth.common.model.dto.IdRequestDto idOf(String id) {
+		com.wealth.common.model.dto.IdRequestDto request = new com.wealth.common.model.dto.IdRequestDto();
+		request.setId(id);
+		return request;
+	}
+
+	@Test
+	void aSplitIsCancelledForTheCallerAndBothCachesAreCleared() {
+		String user = "2a7014a8-9cf0-4d39-bed2-c83a83eddf0c";
+		when(dao.cancelSplit(user, TX_ID)).thenReturn(true);
+
+		assertTrue(service.cancelSplit(idOf(TX_ID)));
+
+		org.mockito.Mockito.verify(nexus).evict("people", user);
+		org.mockito.Mockito.verify(nexus).evict("transactions", user);
+	}
+
+	@Test
+	void cancellingNothingChangesNoCacheAndABadIdIsRefused() {
+		assertFalse(service.cancelSplit(idOf(TX_ID)), "not theirs or already cancelled");
+		org.mockito.Mockito.verify(nexus, org.mockito.Mockito.never()).evict(any(), any());
+		assertEquals("611", code(() -> service.cancelSplit(idOf("nope"))));
+		assertEquals("611", code(() -> service.cancelSplit(null)));
 	}
 
 	@Test

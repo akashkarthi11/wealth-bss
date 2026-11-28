@@ -19,6 +19,7 @@ public class PaginationDto implements Serializable {
 	private String sortBy;
 	// a list's filters and the keyset position of its last row (empty = none): kind, account, days (YYYY-MM-DD), and the day, creation time and id of the row to continue after
 	private String kind;
+	private String category;
 	private String accountId;
 	private String fromDay;
 	private String toDay;

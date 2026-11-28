@@ -14,6 +14,11 @@ public class WealthUserEntity extends GenericEntity {
 	private String email;
 	private String role;
 	private Integer sessionVersion;
+	// Profile details (My profile); null when not set.
+	private String displayName;
+	private String mobile;
+	private String prefDateFormat;
+	private String prefHome;
 
 	@Override
 	public String tableName() {

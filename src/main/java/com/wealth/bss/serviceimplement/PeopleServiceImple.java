@@ -1,12 +1,14 @@
 package com.wealth.bss.serviceimplement;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -34,8 +36,11 @@ import com.wealth.bss.common.model.entity.WealthTransactionEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfPeopleService;
+import com.wealth.common.generic.BaseError;
+import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
 import com.wealth.common.model.dto.CachedValueDto;
+import com.wealth.common.model.dto.IdRequestDto;
 import com.wealth.common.model.dto.people.BillSplitDto;
 import com.wealth.common.model.dto.people.LendCommentDto;
 import com.wealth.common.model.dto.people.LendRequestDto;
@@ -44,6 +49,8 @@ import com.wealth.common.model.dto.people.PeopleTotalsDto;
 import com.wealth.common.model.dto.people.PersonDto;
 import com.wealth.common.model.dto.people.PersonItemDto;
 import com.wealth.common.model.dto.people.PersonRollupDto;
+import com.wealth.common.model.dto.people.SplitCreateRequestDto;
+import com.wealth.common.model.dto.people.SplitPersonRequestDto;
 import com.wealth.common.model.dto.people.SplitShareDto;
 import com.wealth.common.model.dto.people.SuggestionDto;
 import com.wealth.common.model.dto.people.UnlinkedDto;
@@ -59,6 +66,7 @@ public class PeopleServiceImple implements IfPeopleService {
 	private static final Pattern LEAD_PAYMENT = Pattern.compile("^(upi\\s+)?(transfer|payment|money)\\s+(to|from)\\s+", Pattern.CASE_INSENSITIVE);
 	private static final Pattern LEAD_PAID = Pattern.compile("^(paid\\s+to|received\\s+from|sent\\s+to)\\s+", Pattern.CASE_INSENSITIVE);
 	private static final Pattern LEAD_TITLE = Pattern.compile("^(mr|mrs|ms|miss|dr)\\.?\\s+", Pattern.CASE_INSENSITIVE);
+	private static final Pattern ID_SHAPE = Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 	private static final Pattern RECEIVED = Pattern.compile("received|from", Pattern.CASE_INSENSITIVE);
 	private static final Pattern PEER_TO_PEER = Pattern.compile("p2p|liquiloans|lendbox|faircent|lendenclub", Pattern.CASE_INSENSITIVE);
 
@@ -101,6 +109,222 @@ public class PeopleServiceImple implements IfPeopleService {
 		result.setFetchedAt(cached.getFetchedAt());
 		result.setStale(cached.isStale());
 		return result;
+	}
+
+	// ---- a new split ----
+
+	// Paise spread over weights with largest-remainder rounding, so the parts add up exactly (the old app's spread).
+	static long[] spread(long paise, long[] weights) {
+		long[] out = new long[weights.length];
+		BigInteger sum = BigInteger.valueOf(Arrays.stream(weights).sum());
+		if (sum.signum() <= 0) {
+			return out;
+		}
+		BigInteger[] remainder = new BigInteger[weights.length];
+		long used = 0;
+		for (int i = 0; i < weights.length; i++) {
+			BigInteger[] division = BigInteger.valueOf(paise).multiply(BigInteger.valueOf(weights[i])).divideAndRemainder(sum);
+			out[i] = division[0].longValue();
+			remainder[i] = division[1];
+			used += out[i];
+		}
+		long left = paise - used;
+		List<Integer> order = new ArrayList<>();
+		for (int i = 0; i < weights.length; i++) {
+			order.add(i);
+		}
+		order.sort((a, b) -> remainder[b].compareTo(remainder[a]) != 0 ? remainder[b].compareTo(remainder[a]) : Integer.compare(a, b));
+		for (int i = 0; i < order.size() && left > 0; i++, left--) {
+			out[order.get(i)]++;
+		}
+		return out;
+	}
+
+	// {base, tax} in paise for the owner (first, when in the split) and then each person. total includes tax. Equal: everyone pays the same. Amounts: each person's amount before tax is given and the
+	// owner's part is what is left. Tax is shared in proportion to each part (equally in equal mode).
+	static List<long[]> computeShares(long total, long tax, String mode, boolean includeMe, long[] given) {
+		if (total <= 0 || tax < 0 || tax > total) {
+			throw new KarthiException(BaseError.SPLIT_AMOUNTS_INVALID);
+		}
+		long sub = total - tax;
+		int people = given.length;
+		int parts = people + (includeMe ? 1 : 0);
+		long[] bases;
+		if (WealthServiceConstants.PEOPLE_SPLIT_EQUAL.equals(mode)) {
+			long[] ones = new long[parts];
+			Arrays.fill(ones, 1);
+			bases = spread(sub, ones);
+		} else {
+			long others = 0;
+			for (long base : given) {
+				if (base < 0) {
+					throw new KarthiException(BaseError.SPLIT_AMOUNTS_INVALID);
+				}
+				others += base;
+			}
+			if (others > sub || (!includeMe && others != sub)) {
+				throw new KarthiException(BaseError.SPLIT_AMOUNTS_INVALID);
+			}
+			bases = new long[parts];
+			for (int i = 0; i < people; i++) {
+				bases[i + (includeMe ? 1 : 0)] = given[i];
+			}
+			if (includeMe) {
+				bases[0] = sub - others;
+			}
+		}
+		long[] taxes;
+		if (WealthServiceConstants.PEOPLE_SPLIT_EQUAL.equals(mode)) {
+			long[] ones = new long[parts];
+			Arrays.fill(ones, 1);
+			taxes = spread(tax, ones);
+		} else {
+			taxes = spread(tax, bases);
+		}
+		List<long[]> out = new ArrayList<>();
+		for (int i = 0; i < parts; i++) {
+			out.add(new long[] { bases[i], taxes[i] });
+		}
+		return out;
+	}
+
+	private static BigDecimal rupees(long paise) {
+		return BigDecimal.valueOf(paise, 2);
+	}
+
+	private static long paise(BigDecimal amount) {
+		if (amount.abs().doubleValue() > WealthServiceConstants.PEOPLE_SPLIT_TOTAL_MAX) {
+			throw new KarthiException(BaseError.SPLIT_AMOUNTS_INVALID);
+		}
+		return amount.movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact();
+	}
+
+	private static String cleanName(String value) {
+		String name = value == null ? "" : value.trim().replaceAll("\\s+", " ");
+		return name.length() > WealthServiceConstants.PEOPLE_NAME_MAX_LENGTH ? name.substring(0, WealthServiceConstants.PEOPLE_NAME_MAX_LENGTH) : name;
+	}
+
+	@Override
+	public BillSplitDto createSplit(SplitCreateRequestDto request) {
+		String methodName = "createSplit";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getTransactionId() == null || !ID_SHAPE.matcher(request.getTransactionId()).matches() || request.getPeople() == null || request.getPeople().isEmpty()
+				|| request.getPeople().size() > WealthServiceConstants.PEOPLE_SPLIT_MAX_PEOPLE
+				|| !(WealthServiceConstants.PEOPLE_SPLIT_EQUAL.equals(request.getMode()) || WealthServiceConstants.PEOPLE_SPLIT_AMOUNTS.equals(request.getMode()))) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		WealthTransactionEntity transaction = peopleDao.findTransactionForSplit(userId, request.getTransactionId());
+		// a transfer counts as money sent unless its category says received (the direction rule the People list uses)
+		boolean sent = transaction != null && !(transaction.getCategory() != null && RECEIVED.matcher(transaction.getCategory()).find());
+		if (transaction == null || !("expense".equals(transaction.getKind()) || "investment".equals(transaction.getKind()) || ("transfer".equals(transaction.getKind()) && sent))
+				|| peopleDao.transactionLinkedToPerson(userId, transaction.getId())) {
+			throw new KarthiException(BaseError.SPLIT_TRANSACTION_INVALID);
+		}
+		if (WealthServiceConstants.PEOPLE_STATUS_ACTIVE.equals(transaction.getSplitStatus())) {
+			throw new KarthiException(BaseError.SPLIT_ALREADY_EXISTS);
+		}
+		boolean equal = WealthServiceConstants.PEOPLE_SPLIT_EQUAL.equals(request.getMode());
+		boolean includeMe = !Boolean.FALSE.equals(request.getIncludeMe());
+		long total = paise(transaction.getAmount());
+		long tax = request.getTax() == null ? 0 : paise(request.getTax());
+		List<WealthPersonEntity> people = new ArrayList<>();
+		long[] given = new long[request.getPeople().size()];
+		Set<String> seen = new HashSet<>();
+		for (int i = 0; i < given.length; i++) {
+			SplitPersonRequestDto one = request.getPeople().get(i);
+			WealthPersonEntity person = new WealthPersonEntity();
+			String key;
+			if (one == null) {
+				throw new KarthiException(BaseError.SPLIT_PERSON_INVALID);
+			} else if (one.getPersonId() != null && !one.getPersonId().isBlank()) {
+				if (!ID_SHAPE.matcher(one.getPersonId()).matches()) {
+					throw new KarthiException(BaseError.SPLIT_PERSON_INVALID);
+				}
+				person.setId(one.getPersonId());
+				key = one.getPersonId().toLowerCase();
+			} else {
+				person.setName(cleanName(one.getName()));
+				if (person.getName().isEmpty()) {
+					throw new KarthiException(BaseError.SPLIT_PERSON_INVALID);
+				}
+				key = person.getName().toLowerCase();
+			}
+			if (!seen.add(key)) {
+				throw new KarthiException(BaseError.SPLIT_PERSON_INVALID);
+			}
+			if (!equal) {
+				if (one.getBase() == null) {
+					throw new KarthiException(BaseError.SPLIT_AMOUNTS_INVALID);
+				}
+				given[i] = paise(one.getBase());
+			}
+			people.add(person);
+		}
+		List<long[]> parts = computeShares(total, tax, request.getMode(), includeMe, given);
+		WealthBillSplitEntity split = new WealthBillSplitEntity();
+		split.setTransactionId(transaction.getId());
+		String title = cut(transaction.getDescription(), WealthServiceConstants.PEOPLE_TITLE_MAX_LENGTH);
+		split.setTitle(title.isEmpty() ? cut(transaction.getCategory(), WealthServiceConstants.PEOPLE_TITLE_MAX_LENGTH) : title);
+		split.setOn(transaction.getDay());
+		split.setTotal(rupees(total));
+		split.setTax(rupees(tax));
+		split.setMode(request.getMode());
+		String note = cut(request.getNote(), WealthServiceConstants.PEOPLE_NOTE_MAX_LENGTH);
+		split.setNote(note.isEmpty() ? null : note);
+		WealthBillSplitShareEntity mine = null;
+		List<WealthBillSplitShareEntity> shares = new ArrayList<>();
+		long othersOwe = 0;
+		for (int i = 0; i < parts.size(); i++) {
+			long[] part = parts.get(i);
+			WealthBillSplitShareEntity share = new WealthBillSplitShareEntity();
+			share.setBase(rupees(part[0]));
+			share.setTax(rupees(part[1]));
+			share.setAmount(rupees(part[0] + part[1]));
+			if (includeMe && i == 0) {
+				mine = share;
+			} else {
+				shares.add(share);
+				othersOwe += part[0] + part[1];
+			}
+		}
+		String splitId = peopleDao.createSplit(userId, split, people, shares, mine);
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, userId);
+		BillSplitDto dto = new BillSplitDto();
+		dto.setId(splitId);
+		dto.setTransactionId(split.getTransactionId());
+		dto.setTitle(split.getTitle());
+		dto.setOn(split.getOn());
+		dto.setTotal(split.getTotal());
+		dto.setTax(split.getTax());
+		dto.setMode(split.getMode());
+		dto.setMyShare(mine == null ? BigDecimal.ZERO.setScale(2) : mine.getAmount());
+		dto.setOthersOwe(rupees(othersOwe));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return dto;
+	}
+
+	@Override
+	public Boolean cancelSplit(IdRequestDto request) {
+		String methodName = "cancelSplit";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getId() == null || !ID_SHAPE.matcher(request.getId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		boolean changed = peopleDao.cancelSplit(userId, request.getId());
+		if (changed) {
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, userId);
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | changed=" + changed);
+		return changed;
+	}
+
+	private static String cut(String value, int max) {
+		String text = value == null ? "" : value.trim();
+		return text.length() > max ? text.substring(0, max) : text;
 	}
 
 	// ---- names and figures ----

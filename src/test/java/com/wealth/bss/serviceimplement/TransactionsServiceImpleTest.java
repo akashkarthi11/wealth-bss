@@ -144,7 +144,6 @@ class TransactionsServiceImpleTest {
 		assertEquals(List.of("2026-11-03", "2026-10-05"), summary.getByDay().stream().map(i -> i.getLabel()).toList());
 	}
 
-
 	@Test
 	void anEmptySelectionGivesZerosAndABadFilterIsRefused() {
 		when(dao.summaryBy(any(), any())).thenReturn(new ArrayList<>());
@@ -159,6 +158,23 @@ class TransactionsServiceImpleTest {
 	}
 
 	@Test
+	void aTransactionThatHasABillSplitCarriesItsPeopleStatusAndMode() {
+		com.wealth.bss.common.model.entity.WealthTransactionEntity split = row("b1111111-2222-3333-4444-555555555555", "2026-11-26", "2026-11-26T10:00:00.123456Z");
+		split.setSplitPeople(3);
+		split.setSplitStatus("active");
+		split.setSplitMode("equal");
+		when(dao.findPage(any())).thenReturn(List.of(split, row("c1111111-2222-3333-4444-555555555555", "2026-11-25", "2026-11-25T10:00:00.123456Z")));
+
+		TransactionPageDto page = service.list(null);
+
+		assertEquals(3, page.getItems().get(0).getSplitPeople());
+		assertEquals("active", page.getItems().get(0).getSplitStatus());
+		assertEquals("equal", page.getItems().get(0).getSplitMode());
+		assertNull(page.getItems().get(1).getSplitStatus(), "a transaction with no split has none");
+		assertEquals(0, page.getItems().get(1).getSplitPeople());
+	}
+
+	@Test
 	void theFirstPageWithoutFiltersIsReadThroughTheCacheAtTheDefaultSize() {
 		when(dao.findPage(any())).thenReturn(List.of(row("a1111111-2222-3333-4444-555555555555", "2026-11-26", "2026-11-26T10:00:00.123456Z")));
 
@@ -170,6 +186,19 @@ class TransactionsServiceImpleTest {
 		assertEquals(Timestamp.valueOf("2026-11-27 10:00:00"), page.getFetchedAt());
 		assertNull(page.getNextCursor(), "a short page is the last one");
 		verify(nexus).read(any(), any(Class.class), any(java.util.function.Supplier.class));
+	}
+
+	@Test
+	void aCategoryFilterIsPassedToTheTableAndSkipsTheCache() {
+		when(dao.findPage(any())).thenReturn(List.of());
+		TransactionPageRequestDto request = new TransactionPageRequestDto();
+		request.setCategory("  Credit card repayment ");
+		request.setKind("liability");
+
+		service.list(request);
+
+		verify(dao).findPage(argThat(p -> "Credit card repayment".equals(p.getCategory()) && "liability".equals(p.getKind())));
+		verify(nexus, never()).read(any(), any(Class.class), any(java.util.function.Supplier.class));
 	}
 
 	@Test
@@ -204,7 +233,7 @@ class TransactionsServiceImpleTest {
 				r -> r.setFrom("2026-13-40"), r -> r.setTo("yesterday"), r -> {
 					r.setFrom("2026-11-30");
 					r.setTo("2026-11-01");
-				}, r -> r.setQ("x".repeat(101)), r -> r.setCursor("not a cursor"), r -> r.setCursor("W10"))) {
+				}, r -> r.setQ("x".repeat(101)), r -> r.setCategory("c".repeat(61)), r -> r.setCursor("not a cursor"), r -> r.setCursor("W10"))) {
 			TransactionPageRequestDto request = new TransactionPageRequestDto();
 			change.accept(request);
 			assertEquals(BaseError.INVALID_REQUEST, assertThrows(KarthiException.class, () -> service.list(request)).getMessage());

@@ -166,8 +166,18 @@ public final class WealthServiceConstants {
 	public static final String PEOPLE_BASE = "/wealth-service/api/v1/people";
 	public static final String PEOPLE_LIST = "/list";
 	public static final String PEOPLE_REFRESH = "/refresh";
+	public static final String PEOPLE_SPLIT_CREATE = "/splits/create";
+	public static final String PEOPLE_SPLIT_CANCEL = "/splits/cancel";
+	public static final String PEOPLE_SPLIT_EQUAL = "equal";
+	public static final String PEOPLE_SPLIT_AMOUNTS = "amounts";
+	public static final int PEOPLE_SPLIT_MAX_PEOPLE = 50;
+	public static final int PEOPLE_NAME_MAX_LENGTH = 80;
+	public static final int PEOPLE_TITLE_MAX_LENGTH = 120;
+	public static final int PEOPLE_NOTE_MAX_LENGTH = 300;
+	public static final double PEOPLE_SPLIT_TOTAL_MAX = 1e12;
 	// People (money lent and split bills): states, labels and limits of the list
 	public static final String PEOPLE_STATUS_OPEN = "open";
+	public static final String PEOPLE_STATUS_REMOVED = "removed";
 	public static final String PEOPLE_STATUS_WRITTEN_OFF = "written_off";
 	public static final String PEOPLE_STATUS_ACTIVE = "active";
 	public static final String PEOPLE_DIRECTION_OUT = "out";
@@ -248,6 +258,10 @@ public final class WealthServiceConstants {
 	public static final String INDSTOCKS_BASE = "/wealth-service/api/v1/indstocks";
 	public static final String INDSTOCKS_PROBE_PATH = "/portfolio/holdings";
 	public static final int INDSTOCKS_TOKEN_MAX = 500;
+	public static final String PROFILE_SAVE = "/profile/save";
+	public static final String PASSWORD_CHANGE = "/password/change";
+	public static final int PROFILE_NAME_MAX = 60;
+	public static final java.util.List<String> PROFILE_DATE_FORMATS = java.util.List.of("short", "numeric", "iso");
 	public static final String GEMINI_PROVIDER = "gemini";
 	public static final String GEMINI_MODEL = "gemini-2.5-flash";
 	public static final int AI_TEXT_MAX = 60_000;
@@ -368,14 +382,6 @@ public final class WealthServiceConstants {
 	public static final int PROVIDER_PRIORITY_MAX = 99;
 	public static final int PROVIDER_KEY_MAX_LENGTH = 500;
 	public static final int KEY_HINT_LENGTH = 4;
-
-	public static final String FINVU_AA_BASE = "/wealth-service/api/v1/aa/finvu";
-	public static final String FINVU_AA_CONFIG = "/config";
-	public static final String FINVU_AA_CONSENT_REQUEST = "/consent/request";
-	public static final String FINVU_AA_CONSENT_STATUS = "/consent/status";
-	public static final String FINVU_AA_FI_REQUEST = "/fi/request";
-	public static final String FINVU_AA_FI_STATUS = "/fi/status";
-	public static final String FINVU_AA_FI_FETCH = "/fi/fetch";
 
 	public static final String MENUS_BASE = "/wealth-service/api/v1/menus";
 	public static final String MENUS_LIST = "/list";

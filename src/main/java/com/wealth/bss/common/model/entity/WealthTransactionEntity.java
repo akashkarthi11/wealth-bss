@@ -28,6 +28,10 @@ public class WealthTransactionEntity extends GenericEntity {
 	private String duplicateOf;
 	private String createdKey;
 	private boolean inactive;
+	// The bill split made from this transaction (splitStatus is null when it has none).
+	private int splitPeople;
+	private String splitStatus;
+	private String splitMode;
 
 	@Override
 	public String tableName() {

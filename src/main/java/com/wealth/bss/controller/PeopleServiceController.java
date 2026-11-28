@@ -10,7 +10,10 @@ import com.wealth.common.generic.ApiResponseTemplate;
 import com.wealth.common.generic.BaseError;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.logger.KarthiLogger;
+import com.wealth.common.model.dto.IdRequestDto;
+import com.wealth.common.model.dto.people.BillSplitDto;
 import com.wealth.common.model.dto.people.PeopleOverviewDto;
+import com.wealth.common.model.dto.people.SplitCreateRequestDto;
 
 @RestController
 public class PeopleServiceController implements IfPeopleServiceContract {
@@ -35,5 +38,17 @@ public class PeopleServiceController implements IfPeopleServiceContract {
 	public ResponseEntity<ApiResponse<PeopleOverviewDto, Void>> refresh() throws KarthiException {
 		LOGGER.info("Entering refresh");
 		return responseTemplate.apires(peopleService.refresh(), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<BillSplitDto, Void>> createSplit(SplitCreateRequestDto request) throws KarthiException {
+		LOGGER.info("Entering createSplit");
+		return responseTemplate.apires(peopleService.createSplit(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<Boolean, Void>> cancelSplit(IdRequestDto request) throws KarthiException {
+		LOGGER.info("Entering cancelSplit");
+		return responseTemplate.apires(peopleService.cancelSplit(request), BaseError.Success);
 	}
 }

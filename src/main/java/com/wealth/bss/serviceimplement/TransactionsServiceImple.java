@@ -54,7 +54,7 @@ public class TransactionsServiceImple implements IfTransactionsService {
 		String methodName = "list";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
 		PaginationDto page = pageOf(request);
-		boolean first = page.getCursorId() == null && page.getKind() == null && page.getAccountId() == null && page.getFromDay() == null && page.getToDay() == null
+		boolean first = page.getCursorId() == null && page.getKind() == null && page.getCategory() == null && page.getAccountId() == null && page.getFromDay() == null && page.getToDay() == null
 				&& page.getSearchText() == null && page.getPageSize() == WealthServiceConstants.TRANSACTIONS_PAGE_DEFAULT;
 		TransactionPageDto result = first ? stamp(nexusReadService.read(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, TransactionPageDto.class, this::firstPage)) : read(page);
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + result.getItems().size());
@@ -146,19 +146,21 @@ public class TransactionsServiceImple implements IfTransactionsService {
 		TransactionPageRequestDto asked = request == null ? new TransactionPageRequestDto() : request;
 		int size = asked.getSize() == null ? WealthServiceConstants.TRANSACTIONS_PAGE_DEFAULT : asked.getSize();
 		String kind = blankToNull(asked.getKind());
+		String category = blankToNull(asked.getCategory());
 		String accountId = blankToNull(asked.getAccountId());
 		String from = blankToNull(asked.getFrom());
 		String to = blankToNull(asked.getTo());
 		String q = blankToNull(asked.getQ());
 		if (size < 1 || size > WealthServiceConstants.TRANSACTIONS_PAGE_MAX || (kind != null && !WealthServiceConstants.TRANSACTION_KINDS.contains(kind))
 				|| (accountId != null && !ID_SHAPE.matcher(accountId).matches()) || !validDay(from) || !validDay(to) || (from != null && to != null && from.compareTo(to) > 0)
-				|| (q != null && q.length() > WealthServiceConstants.TRANSACTION_SEARCH_MAX_LENGTH)) {
+				|| (q != null && q.length() > WealthServiceConstants.TRANSACTION_SEARCH_MAX_LENGTH) || (category != null && category.length() > WealthServiceConstants.TRANSACTION_CATEGORY_MAX_LENGTH)) {
 			throw new KarthiException(BaseError.INVALID_REQUEST);
 		}
 		PaginationDto page = new PaginationDto();
 		page.setUserId(RequestHeaderUtil.getUserId());
 		page.setPageSize(size);
 		page.setKind(kind);
+		page.setCategory(category);
 		page.setAccountId(accountId);
 		page.setFromDay(from);
 		page.setToDay(to);
@@ -292,6 +294,9 @@ public class TransactionsServiceImple implements IfTransactionsService {
 		dto.setOccurredOn(row.getOccurredOn());
 		dto.setExternalRef(row.getExternalRef());
 		dto.setReviewStatus(row.getReviewStatus());
+		dto.setSplitPeople(row.getSplitPeople());
+		dto.setSplitStatus(row.getSplitStatus());
+		dto.setSplitMode(row.getSplitMode());
 		dto.setDuplicateOf(row.getDuplicateOf());
 		dto.setInactive(row.isInactive());
 		return dto;
