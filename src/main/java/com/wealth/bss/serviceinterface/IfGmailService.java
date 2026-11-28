@@ -70,6 +70,9 @@ public interface IfGmailService {
 	// (an uploaded file is not kept); GMAIL_FETCH_FAILED when Gmail no longer has the mail or the file.
 	StatementFileDto statementDownload(StatementDownloadRequestDto request);
 
+	// The transaction rows kept with one of the user's opened statements, in the order they were read, for the screen to list. Empty when the statement has no rows. GMAIL_REQUEST_INVALID when the statement is not the user's or did not open.
+	java.util.List<com.wealth.common.model.dto.admin.StatementRowDto> statementRows(StatementDownloadRequestDto request);
+
 	// The user accepts a statement: each of its rows is checked against the database by the import (a new one becomes a transaction, one already there is skipped, one with a problem goes to the
 	// Data quality review as its own item), in date and time order, and the statement is marked accepted. Accepting again repeats nothing. GMAIL_REQUEST_INVALID when the statement is not the user's or did not open.
 	com.wealth.common.model.dto.transaction.BankImportResultDto statementAccept(com.wealth.common.model.dto.admin.StatementAcceptRequestDto request);

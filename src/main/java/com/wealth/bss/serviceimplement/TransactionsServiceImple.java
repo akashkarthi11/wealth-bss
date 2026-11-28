@@ -38,6 +38,13 @@ public class TransactionsServiceImple implements IfTransactionsService {
 	private static final Pattern ID_SHAPE = Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$");
 	private static final Pattern CURSOR = Pattern.compile("^\\[\"(\\d{4}-\\d{2}-\\d{2})\",\"(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z)\",\"([0-9a-fA-F-]{36})\"\\]$");
 
+	private static final List<String> SUMMARY_DIMENSIONS = List.of("total", "account", "kind", "day", "month", "category", "categorymonth");
+	private static final java.util.concurrent.ExecutorService SUMMARY_EXECUTOR = java.util.concurrent.Executors.newFixedThreadPool(SUMMARY_DIMENSIONS.size(), runnable -> {
+		Thread thread = new Thread(runnable, "summary-read");
+		thread.setDaemon(true);
+		return thread;
+	});
+
 	private final IfWealthTransactionDao transactionDao;
 	private final IfWealthAccountDao accountDao;
 	private final IfNexusReadService nexusReadService;
@@ -66,25 +73,53 @@ public class TransactionsServiceImple implements IfTransactionsService {
 		String methodName = "summary";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
 		PaginationDto page = pageOf(request);
+		// the dashboard is the heaviest read: kept per user and filters for a few minutes, and dropped whenever the user's transactions change (evict of the transactions read)
+		String variant = String.join("|", String.valueOf(page.getKind()), String.valueOf(page.getAccountId()), String.valueOf(page.getFromDay()), String.valueOf(page.getToDay()),
+				String.valueOf(page.getSearchText()));
+		com.wealth.common.model.dto.transaction.TransactionSummaryDto result = nexusReadService.remember(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, "summary|" + variant,
+				java.time.Duration.ofSeconds(WealthServiceConstants.NEXUS_MEMO_SUMMARY_SECONDS), new com.fasterxml.jackson.core.type.TypeReference<com.wealth.common.model.dto.transaction.TransactionSummaryDto>() {
+				}, () -> buildSummary(page));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | count=" + result.getCount());
+		return result;
+	}
+
+	private com.wealth.common.model.dto.transaction.TransactionSummaryDto buildSummary(PaginationDto page) {
 		com.wealth.common.model.dto.transaction.TransactionSummaryDto result = new com.wealth.common.model.dto.transaction.TransactionSummaryDto();
-		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> total = transactionDao.summaryBy(page, "total");
+		// the seven reads are independent: they run side by side, so the call costs one database trip, not seven (rules 12)
+		java.util.Map<String, java.util.concurrent.CompletableFuture<List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto>>> reads = new java.util.HashMap<>();
+		for (String dimension : SUMMARY_DIMENSIONS) {
+			reads.put(dimension, java.util.concurrent.CompletableFuture.supplyAsync(() -> transactionDao.summaryBy(page, dimension), SUMMARY_EXECUTOR));
+		}
+		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> total = summaryRead(reads, "total");
 		if (!total.isEmpty() && total.get(0).getIncoming() != null) {
 			result.setIncoming(total.get(0).getIncoming().setScale(2, RoundingMode.HALF_UP));
 			result.setOutgoing(total.get(0).getOutgoing().setScale(2, RoundingMode.HALF_UP));
 			result.setCount(total.get(0).getCount());
 		}
 		result.setNet(result.getIncoming().subtract(result.getOutgoing()));
-		result.setByAccount(round(transactionDao.summaryBy(page, "account")));
-		result.setByKind(round(transactionDao.summaryBy(page, "kind")));
-		result.setByDay(round(transactionDao.summaryBy(page, "day")));
-		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> months = new java.util.ArrayList<>(round(transactionDao.summaryBy(page, "month")));
+		result.setByAccount(round(summaryRead(reads, "account")));
+		result.setByKind(round(summaryRead(reads, "kind")));
+		result.setByDay(round(summaryRead(reads, "day")));
+		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> months = new java.util.ArrayList<>(round(summaryRead(reads, "month")));
 		java.util.Collections.reverse(months);
 		result.setByMonth(months);
-		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> categories = round(transactionDao.summaryBy(page, "category"));
-		addTrend(categories, months, transactionDao.summaryBy(page, "categorymonth"));
+		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> categories = round(summaryRead(reads, "category"));
+		addTrend(categories, months, summaryRead(reads, "categorymonth"));
 		result.setByCategory(categories);
-		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | count=" + result.getCount());
 		return result;
+	}
+
+	// A failed read ends the call with its own error, as it did when the reads ran one after another.
+	private static List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> summaryRead(
+			java.util.Map<String, java.util.concurrent.CompletableFuture<List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto>>> reads, String dimension) {
+		try {
+			return reads.get(dimension).join();
+		} catch (java.util.concurrent.CompletionException e) {
+			if (e.getCause() instanceof RuntimeException cause) {
+				throw cause;
+			}
+			throw e;
+		}
 	}
 
 	// Each listed category gets its amount in every month of the chart (oldest first): income for an income category, money out otherwise; 0 where it had none.

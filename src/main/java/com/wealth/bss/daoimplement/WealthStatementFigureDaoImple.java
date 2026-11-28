@@ -30,7 +30,7 @@ public class WealthStatementFigureDaoImple extends WealthBaseDaoImple implements
 		setActor(entity);
 		int saved = jdbcTemplate.update(QueryConstants.UPSERT_STATEMENT_FIGURES, entity.getUserId(), entity.getMailRef(), entity.getSource(), entity.getFigures() == null ? "{}" : entity.getFigures(),
 				entity.getOrigin() == null ? WealthServiceConstants.STATEMENT_ORIGIN_GMAIL : entity.getOrigin(), entity.getStatus() == null ? WealthServiceConstants.STATEMENT_OPENED : entity.getStatus(),
-				entity.getFileName(), entity.getLines() == null ? "[]" : entity.getLines());
+				entity.getFileName(), entity.getLines() == null ? "[]" : entity.getLines(), entity.getReceivedAt(), entity.getReceivedAt());
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | saved=" + saved);
 	}
 

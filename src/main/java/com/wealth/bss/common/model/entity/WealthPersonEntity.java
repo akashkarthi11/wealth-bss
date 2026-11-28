@@ -14,6 +14,7 @@ public class WealthPersonEntity extends GenericEntity {
 	private static final long serialVersionUID = 1L;
 
 	private String id;
+	private String userId;
 	private String name;
 	private String kind;
 	private String dueOn;

@@ -133,6 +133,12 @@ public class GmailServiceController implements IfGmailServiceContract {
 	}
 
 	@Override
+	public ResponseEntity<ApiResponse<java.util.List<com.wealth.common.model.dto.admin.StatementRowDto>, Void>> statementRows(StatementDownloadRequestDto request) throws KarthiException {
+		LOGGER.info("Entering statementRows");
+		return responseTemplate.apires(gmailService.statementRows(request), BaseError.Success);
+	}
+
+	@Override
 	public ResponseEntity<ApiResponse<GmailStatementResultDto, Void>> statementRetry(StatementRetryRequestDto request) throws KarthiException {
 		LOGGER.info("Entering statementRetry");
 		return responseTemplate.apires(gmailService.statementRetry(request), BaseError.Success);

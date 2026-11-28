@@ -18,6 +18,7 @@ import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthRoleMenuEntity;
 import com.wealth.bss.common.model.entity.WealthSnapshotEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
+import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfAdminService;
 import com.wealth.bss.serviceinterface.IfRequestContextService;
 import com.wealth.common.assembler.GenericAssembler;
@@ -48,9 +49,11 @@ public class AdminServiceImple implements IfAdminService {
 	private final IfWealthRoleDao wealthRoleDao;
 	private final IfWealthSnapshotDao wealthSnapshotDao;
 	private final IfWealthMenuDao wealthMenuDao;
+	private final IfNexusReadService nexusReadService;
 
 	public AdminServiceImple(IfRequestContextService requestContextService, IfWealthUserDao wealthUserDao, IfWealthRoleDao wealthRoleDao,
-			IfWealthSnapshotDao wealthSnapshotDao, IfWealthMenuDao wealthMenuDao) {
+			IfWealthSnapshotDao wealthSnapshotDao, IfWealthMenuDao wealthMenuDao, IfNexusReadService nexusReadService) {
+		this.nexusReadService = nexusReadService;
 		this.requestContextService = requestContextService;
 		this.wealthUserDao = wealthUserDao;
 		this.wealthRoleDao = wealthRoleDao;
@@ -121,6 +124,7 @@ public class AdminServiceImple implements IfAdminService {
 		entity.setMenus(String.join(",", clean));
 		entity.setUpdatedBy(RequestHeaderUtil.getUserId());
 		wealthRoleDao.saveMenus(entity);
+		nexusReadService.evictShared(WealthServiceConstants.NEXUS_READ_NAV, request.getRole());
 		RoleMenusDto saved = new RoleMenusDto();
 		saved.setRole(request.getRole());
 		saved.setMenus(clean);

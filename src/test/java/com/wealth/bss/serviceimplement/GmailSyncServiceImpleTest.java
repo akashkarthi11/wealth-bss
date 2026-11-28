@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -66,7 +67,7 @@ class GmailSyncServiceImpleTest {
 		heartbeat = mock(ScheduledFuture.class);
 		doReturn(heartbeat).when(beat).scheduleAtFixedRate(any(Runnable.class), anyLong(), anyLong(), any(TimeUnit.class));
 		Executor direct = Runnable::run;
-		service = new GmailSyncServiceImple(dao, gmail, events, direct, beat);
+		service = new GmailSyncServiceImple(dao, gmail, events, direct, beat, new long[] { 0, 0 });
 		ArgumentCaptor<Consumer<String>> captor = ArgumentCaptor.forClass(Consumer.class);
 		verify(events).onGmailSync(captor.capture());
 		kafkaHandler = captor.getValue();
@@ -153,6 +154,44 @@ class GmailSyncServiceImpleTest {
 
 		verify(gmail).statements();
 		verify(dao).finishSync(eq(USER), eq(GMAIL), eq("failed"), eq("alerts=" + BaseError.GMAIL_FETCH_FAILED), anyString());
+	}
+
+	@Test
+	void aStatementsReadThatFailsForAMomentIsTriedAgainInTheBackgroundUntilItWorks() {
+		when(dao.claimSync(USER, GMAIL, "statements", STALE)).thenReturn(true);
+		when(events.publishGmailSync(eq(USER), anyString())).thenReturn(false);
+		GmailStatementResultDto statements = new GmailStatementResultDto();
+		statements.setOpened(5);
+		when(gmail.statements()).thenThrow(new KarthiException(BaseError.GMAIL_FETCH_FAILED)).thenThrow(new KarthiException(BaseError.GMAIL_FETCH_FAILED)).thenReturn(statements);
+
+		service.start(ask("statements"));
+
+		verify(gmail, times(3)).statements();
+		verify(dao).finishSync(eq(USER), eq(GMAIL), eq("done"), eq(null), anyString());
+	}
+
+	@Test
+	void aReadThatKeepsFailingGivesUpAfterTheRetriesAndSaysWhatFailed() {
+		when(dao.claimSync(USER, GMAIL, "statements", STALE)).thenReturn(true);
+		when(events.publishGmailSync(eq(USER), anyString())).thenReturn(false);
+		when(gmail.statements()).thenThrow(new KarthiException(BaseError.GMAIL_FETCH_FAILED));
+
+		service.start(ask("statements"));
+
+		verify(gmail, times(3)).statements();
+		verify(dao).finishSync(eq(USER), eq(GMAIL), eq("failed"), eq("statements=" + BaseError.GMAIL_FETCH_FAILED), anyString());
+	}
+
+	@Test
+	void aFailureThatAnotherTryCannotFixIsNotRepeated() {
+		when(dao.claimSync(USER, GMAIL, "statements", STALE)).thenReturn(true);
+		when(events.publishGmailSync(eq(USER), anyString())).thenReturn(false);
+		when(gmail.statements()).thenThrow(new KarthiException(BaseError.GMAIL_NOT_CONNECTED));
+
+		service.start(ask("statements"));
+
+		verify(gmail, times(1)).statements();
+		verify(dao).finishSync(eq(USER), eq(GMAIL), eq("failed"), eq("statements=" + BaseError.GMAIL_NOT_CONNECTED), anyString());
 	}
 
 	@Test

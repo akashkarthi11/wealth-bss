@@ -3,17 +3,26 @@ package com.wealth.bss.serviceimplement;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.Duration;
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +42,7 @@ import com.wealth.bss.common.model.entity.WealthPersonEntity;
 import com.wealth.bss.common.model.entity.WealthPersonEntryEntity;
 import com.wealth.bss.common.model.entity.WealthPersonRollupEntity;
 import com.wealth.bss.common.model.entity.WealthTransactionEntity;
+import com.wealth.bss.common.utils.security.LoginRateLimiter;
 import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfPeopleService;
@@ -45,10 +55,38 @@ import com.wealth.common.model.dto.people.BillSplitDto;
 import com.wealth.common.model.dto.people.LendCommentDto;
 import com.wealth.common.model.dto.people.LendRequestDto;
 import com.wealth.common.model.dto.people.PeopleOverviewDto;
+import com.wealth.common.model.dto.people.CommentCreateRequestDto;
+import com.wealth.common.model.dto.people.CommentCreateResultDto;
+import com.wealth.common.model.dto.people.EntryNoteRequestDto;
+import com.wealth.common.model.dto.people.EntryNoteResultDto;
+import com.wealth.common.model.dto.people.RequestDecideRequestDto;
+import com.wealth.common.model.dto.people.RequestDecideResultDto;
+import com.wealth.common.model.dto.people.LendPaidRequestDto;
+import com.wealth.common.model.dto.people.LendPaidResultDto;
+import com.wealth.common.model.dto.people.LendRemarkRequestDto;
+import com.wealth.common.model.dto.people.LendRemarkResultDto;
+import com.wealth.common.model.dto.people.LendViewRequestRowDto;
+import com.wealth.common.model.dto.people.LendViewDto;
+import com.wealth.common.model.dto.people.LendViewItemDto;
+import com.wealth.common.model.dto.people.LendViewRequestDto;
+import com.wealth.common.model.dto.people.ShareUpdateRequestDto;
+import com.wealth.common.model.dto.people.ShareUpdateResultDto;
 import com.wealth.common.model.dto.people.PeopleTotalsDto;
 import com.wealth.common.model.dto.people.PersonDto;
+import com.wealth.common.model.dto.people.PersonMergeRequestDto;
+import com.wealth.common.model.dto.people.PersonMergeResultDto;
+import com.wealth.common.model.dto.people.PersonEntryRequestDto;
+import com.wealth.common.model.dto.people.PersonEntryResultDto;
 import com.wealth.common.model.dto.people.PersonItemDto;
 import com.wealth.common.model.dto.people.PersonRollupDto;
+import com.wealth.common.model.dto.people.PersonSaveRequestDto;
+import com.wealth.common.model.dto.people.PersonSaveResultDto;
+import com.wealth.common.model.dto.people.RecordStatusRequestDto;
+import com.wealth.common.model.dto.people.RecordStatusResultDto;
+import com.wealth.common.model.dto.people.RoundOffRequestDto;
+import com.wealth.common.model.dto.people.RoundOffResultDto;
+import com.wealth.common.model.dto.people.SharePaidRequestDto;
+import com.wealth.common.model.dto.people.SharePaidResultDto;
 import com.wealth.common.model.dto.people.SplitCreateRequestDto;
 import com.wealth.common.model.dto.people.SplitPersonRequestDto;
 import com.wealth.common.model.dto.people.SplitShareDto;
@@ -78,19 +116,27 @@ public class PeopleServiceImple implements IfPeopleService {
 	record Move(String on, double amount, String direction) {
 	}
 
+	private static final SecureRandom RANDOM = new SecureRandom();
+
 	private final IfWealthPeopleDao peopleDao;
 	private final IfNexusReadService nexusReadService;
 	private final Clock clock;
+	private final LoginRateLimiter rateLimiter;
 
 	@Autowired
-	public PeopleServiceImple(IfWealthPeopleDao peopleDao, IfNexusReadService nexusReadService) {
-		this(peopleDao, nexusReadService, Clock.systemUTC());
+	public PeopleServiceImple(IfWealthPeopleDao peopleDao, IfNexusReadService nexusReadService, LoginRateLimiter rateLimiter) {
+		this(peopleDao, nexusReadService, Clock.systemUTC(), rateLimiter);
 	}
 
 	PeopleServiceImple(IfWealthPeopleDao peopleDao, IfNexusReadService nexusReadService, Clock clock) {
+		this(peopleDao, nexusReadService, clock, null);
+	}
+
+	PeopleServiceImple(IfWealthPeopleDao peopleDao, IfNexusReadService nexusReadService, Clock clock, LoginRateLimiter rateLimiter) {
 		this.peopleDao = peopleDao;
 		this.nexusReadService = nexusReadService;
 		this.clock = clock;
+		this.rateLimiter = rateLimiter;
 	}
 
 	// Not read from the tables on every call: the nexus returns it from its cache and refreshes it when it is older than the refresh time (rules 10).
@@ -322,6 +368,690 @@ public class PeopleServiceImple implements IfPeopleService {
 		return changed;
 	}
 
+	// ---- entries, a paid share and a round-off (the rules of the old app, api/_loans.js) ----
+
+	// A day as the old API took it: empty is today (IST); otherwise a real yyyy-MM-dd that is not in the future.
+	private String dayOrToday(String value) {
+		String today = LocalDate.now(clock.withZone(IST)).toString();
+		if (value == null || value.isBlank()) {
+			return today;
+		}
+		String day;
+		try {
+			day = LocalDate.parse(value.trim()).toString();
+		} catch (DateTimeParseException e) {
+			throw new KarthiException(BaseError.DATE_INVALID);
+		}
+		if (day.compareTo(today) > 0) {
+			throw new KarthiException(BaseError.DATE_INVALID);
+		}
+		return day;
+	}
+
+	private static boolean amountOk(BigDecimal amount) {
+		return amount != null && amount.signum() > 0 && amount.doubleValue() <= WealthServiceConstants.PEOPLE_AMOUNT_MAX;
+	}
+
+	// Money lent or paid back. Linking: the transfers must be the caller's, be transfers, and not be linked to a person or split already; sent counts as lent and received as paid back (one transfer may force
+	// the direction). By hand: a direction and an amount. The person is added when the name is new, a removed one comes back, a settled one re-opens when lent to, and each transfer's name is kept as another name.
+	@Override
+	public PersonEntryResultDto createEntries(PersonEntryRequestDto request) {
+		String methodName = "createEntries";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		List<String> ids = request.getTransactionIds() == null ? List.of() : request.getTransactionIds();
+		if (ids.size() > WealthServiceConstants.PEOPLE_ENTRY_MAX_TRANSACTIONS || new HashSet<>(ids).size() != ids.size() || ids.stream().anyMatch(id -> id == null || !ID_SHAPE.matcher(id).matches())) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		boolean byId = request.getPersonId() != null && !request.getPersonId().isBlank();
+		String name = cleanName(request.getName());
+		if (byId ? !ID_SHAPE.matcher(request.getPersonId()).matches() : name.isEmpty()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		WealthPersonEntity person = new WealthPersonEntity();
+		String ownName = name;
+		if (byId) {
+			WealthPersonEntity found = peopleDao.findPerson(userId, request.getPersonId());
+			if (found == null || WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(found.getStatus())) {
+				throw new KarthiException(BaseError.PERSON_NOT_FOUND);
+			}
+			person.setId(found.getId());
+			ownName = found.getName();
+		} else {
+			person.setName(name);
+		}
+		String note = cut(request.getNote(), WealthServiceConstants.PEOPLE_NOTE_MAX_LENGTH);
+		List<WealthPersonEntryEntity> entries = new ArrayList<>();
+		List<String> aliases = new ArrayList<>();
+		if (!ids.isEmpty()) {
+			List<WealthTransactionEntity> transfers = peopleDao.findTransfersForEntries(userId, ids);
+			if (transfers.size() != ids.size()) {
+				throw new KarthiException(BaseError.ENTRY_TRANSACTION_INVALID);
+			}
+			boolean forced = ids.size() == 1 && (WealthServiceConstants.PEOPLE_DIRECTION_OUT.equals(request.getDirection()) || WealthServiceConstants.PEOPLE_DIRECTION_IN.equals(request.getDirection()));
+			String ownKey = nameKey(ownName);
+			Set<String> seen = new HashSet<>();
+			for (WealthTransactionEntity transfer : transfers) {
+				if (!WealthServiceConstants.PEOPLE_KIND_TRANSFER.equals(transfer.getKind())) {
+					throw new KarthiException(BaseError.ENTRY_TRANSACTION_INVALID);
+				}
+				if (transfer.getSplitStatus() != null) {
+					throw new KarthiException(BaseError.ENTRY_TRANSACTION_LINKED);
+				}
+				WealthPersonEntryEntity entry = new WealthPersonEntryEntity();
+				entry.setDirection(forced ? request.getDirection() : directionOf(transfer));
+				entry.setAmount(transfer.getAmount());
+				entry.setOn(transfer.getDay());
+				entry.setTransactionId(transfer.getId());
+				entry.setNote(note.isEmpty() ? null : note);
+				entries.add(entry);
+				String alias = personOf(transfer.getDescription());
+				if (!alias.isEmpty() && !alias.toLowerCase().equals(ownKey) && seen.add(alias.toLowerCase())) {
+					aliases.add(alias);
+				}
+			}
+		} else {
+			if (!(WealthServiceConstants.PEOPLE_DIRECTION_OUT.equals(request.getDirection()) || WealthServiceConstants.PEOPLE_DIRECTION_IN.equals(request.getDirection())) || !amountOk(request.getAmount())) {
+				throw new KarthiException(BaseError.ENTRY_AMOUNT_INVALID);
+			}
+			WealthPersonEntryEntity entry = new WealthPersonEntryEntity();
+			entry.setDirection(request.getDirection());
+			entry.setAmount(request.getAmount().setScale(2, RoundingMode.HALF_UP));
+			entry.setOn(dayOrToday(request.getOccurredOn()));
+			entry.setNote(note.isEmpty() ? null : note);
+			entries.add(entry);
+		}
+		PersonEntryResultDto result = new PersonEntryResultDto();
+		result.setDryRun(Boolean.TRUE.equals(request.getDryRun()));
+		result.setPerson(ownName);
+		result.setEntries(entries.size());
+		if (!result.isDryRun()) {
+			result.setPersonId(peopleDao.addEntries(userId, person, entries, aliases));
+			result.setStored(true);
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, userId);
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | entries=" + entries.size() + " | dryRun=" + result.isDryRun());
+		return result;
+	}
+
+	// The person paid their share of a split bill: adds one paid-back entry for the share's amount. Already paid is not an error and stores nothing; a share closed by a round-off is refused.
+	@Override
+	public SharePaidResultDto markSharePaid(SharePaidRequestDto request) {
+		String methodName = "markSharePaid";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getSplitId() == null || !ID_SHAPE.matcher(request.getSplitId()).matches() || request.getPersonId() == null || !ID_SHAPE.matcher(request.getPersonId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		WealthBillSplitShareEntity share = peopleDao.findShareToPay(userId, request.getSplitId(), request.getPersonId());
+		if (share == null) {
+			throw new KarthiException(BaseError.SHARE_NOT_FOUND);
+		}
+		SharePaidResultDto result = new SharePaidResultDto();
+		if (peopleDao.sharePaid(request.getPersonId(), request.getSplitId())) {
+			result.setAlready(WealthServiceConstants.PEOPLE_ALREADY_PAID);
+			return result;
+		}
+		if (share.getRollupId() != null || !amountOk(share.getAmount())) {
+			throw new KarthiException(BaseError.SHARE_CLOSED);
+		}
+		String on = dayOrToday(request.getOccurredOn());
+		String note = cut(request.getNote(), WealthServiceConstants.PEOPLE_NOTE_MAX_LENGTH);
+		result.setAmount(share.getAmount());
+		result.setOn(on);
+		result.setDryRun(Boolean.TRUE.equals(request.getDryRun()));
+		if (!result.isDryRun()) {
+			result.setStored(peopleDao.addSharePaid(userId, request.getPersonId(), request.getSplitId(), share.getAmount(), on, note.isEmpty() ? null : note));
+			if (result.isStored()) {
+				nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+			}
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | stored=" + result.isStored());
+		return result;
+	}
+
+	// Closes every counted open line with a person into one round-off (what is owed now, what was already back, one new amount carried forward). The figures are worked out here from the person's open lines.
+	@Override
+	public RoundOffResultDto roundOff(RoundOffRequestDto request) {
+		String methodName = "roundOff";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getPersonId() == null || !ID_SHAPE.matcher(request.getPersonId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		PersonDto person = buildOverview().getPeople().stream().filter(p -> request.getPersonId().equals(p.getId())).findFirst().orElseThrow(() -> new KarthiException(BaseError.PERSON_NOT_FOUND));
+		List<PersonItemDto> counted = person.getItems().stream().filter(i -> !i.isWrittenOff()).toList();
+		if (counted.isEmpty()) {
+			throw new KarthiException(BaseError.ROUNDOFF_NOTHING_OPEN);
+		}
+		BigDecimal total = person.getOwed().setScale(2, RoundingMode.HALF_UP);
+		BigDecimal back = request.getAlreadyBack() == null ? BigDecimal.ZERO : request.getAlreadyBack();
+		BigDecimal carried = request.getNewAmount() == null ? total.subtract(back).max(BigDecimal.ZERO) : request.getNewAmount();
+		if (back.signum() < 0 || back.doubleValue() > WealthServiceConstants.PEOPLE_AMOUNT_MAX || carried.signum() < 0 || carried.doubleValue() > WealthServiceConstants.PEOPLE_AMOUNT_MAX) {
+			throw new KarthiException(BaseError.ROUNDOFF_AMOUNT_INVALID);
+		}
+		back = back.setScale(2, RoundingMode.HALF_UP);
+		carried = carried.setScale(2, RoundingMode.HALF_UP);
+		String on = dayOrToday(request.getClosedOn());
+		RoundOffResultDto result = new RoundOffResultDto();
+		result.setDryRun(Boolean.TRUE.equals(request.getDryRun()));
+		result.setPerson(person.getName());
+		result.setClosedItems(counted.size());
+		result.setTotalOwed(total);
+		result.setAlreadyBack(back);
+		result.setNewAmount(carried);
+		result.setClosedOn(on);
+		result.setRoundedBy(total.subtract(back).subtract(carried));
+		if (!result.isDryRun()) {
+			String note = cut(request.getNote(), WealthServiceConstants.PEOPLE_NOTE_MAX_LENGTH);
+			WealthPersonRollupEntity rollup = new WealthPersonRollupEntity();
+			rollup.setPersonId(person.getId());
+			rollup.setOn(on);
+			rollup.setTotalOwed(total);
+			rollup.setAlreadyBack(back);
+			rollup.setNewAmount(carried);
+			rollup.setClosedItems(counted.size());
+			rollup.setNote(note.isEmpty() ? null : note);
+			String entryNote = "Round-off " + on + ": " + counted.size() + (counted.size() == 1 ? " entry" : " entries") + ", owed " + WealthServiceConstants.PEOPLE_RUPEE + plain(total) + ", already back "
+					+ WealthServiceConstants.PEOPLE_RUPEE + plain(back);
+			result.setClosed(peopleDao.roundOff(userId, rollup, entryNote));
+			result.setRollupId(rollup.getId());
+			result.setStored(true);
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | closedItems=" + counted.size() + " | dryRun=" + result.isDryRun());
+		return result;
+	}
+
+	// A line or a share written off (kept and shown, no longer counted), undone, or a line deleted (hidden, not counted; its transfer can be linked again). Nothing closed by a round-off can change.
+	@Override
+	public RecordStatusResultDto updateRecord(RecordStatusRequestDto request) {
+		String methodName = "updateRecord";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getStatus() == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String status = request.getStatus();
+		boolean known = WealthServiceConstants.PEOPLE_STATUS_ACTIVE.equals(status) || WealthServiceConstants.PEOPLE_STATUS_WRITTEN_OFF.equals(status);
+		boolean byEntry = request.getEntryId() != null && !request.getEntryId().isBlank();
+		String userId = RequestHeaderUtil.getUserId();
+		RecordStatusResultDto result = new RecordStatusResultDto();
+		result.setDryRun(Boolean.TRUE.equals(request.getDryRun()));
+		result.setTo(status);
+		if (byEntry) {
+			if (!ID_SHAPE.matcher(request.getEntryId()).matches() || !(known || WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(status))) {
+				throw new KarthiException(BaseError.INVALID_REQUEST);
+			}
+			WealthPersonEntryEntity entry = peopleDao.findEntryForStatus(userId, request.getEntryId());
+			if (entry == null || WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(entry.getStatus())) {
+				throw new KarthiException(BaseError.ENTRY_NOT_FOUND);
+			}
+			if (entry.getRollupId() != null) {
+				throw new KarthiException(BaseError.ENTRY_CLOSED);
+			}
+			result.setFrom(entry.getStatus());
+			if (!status.equals(entry.getStatus()) && !result.isDryRun()) {
+				result.setStored(peopleDao.setEntryStatus(userId, entry.getId(), status));
+			}
+			if (result.isStored()) {
+				nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+				nexusReadService.evict(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, userId);
+			}
+		} else {
+			if (request.getSplitId() == null || !ID_SHAPE.matcher(request.getSplitId()).matches() || request.getPersonId() == null || !ID_SHAPE.matcher(request.getPersonId()).matches() || !known) {
+				throw new KarthiException(BaseError.INVALID_REQUEST);
+			}
+			WealthBillSplitShareEntity share = peopleDao.findShareForStatus(userId, request.getSplitId(), request.getPersonId());
+			if (share == null) {
+				throw new KarthiException(BaseError.SHARE_NOT_FOUND);
+			}
+			if (share.getRollupId() != null) {
+				throw new KarthiException(BaseError.SHARE_CLOSED);
+			}
+			result.setFrom(share.getStatus());
+			if (!status.equals(share.getStatus()) && !result.isDryRun()) {
+				result.setStored(peopleDao.setShareStatus(userId, share.getId(), status));
+			}
+			if (result.isStored()) {
+				nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+			}
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | stored=" + result.isStored());
+		return result;
+	}
+
+	// ---- a person added or changed ----
+
+	private static boolean oneOf(String value, String... allowed) {
+		return Arrays.asList(allowed).contains(value);
+	}
+
+	// The owner's text: control characters become spaces, trimmed, cut to the limit; empty is nothing.
+	private static String noteOf(String value) {
+		String text = cut(value == null ? "" : value.replaceAll("[\\u0000-\\u001f]", " "), WealthServiceConstants.PEOPLE_NOTE_MAX_LENGTH);
+		return text.isEmpty() ? null : text;
+	}
+
+	@Override
+	public PersonSaveResultDto savePerson(PersonSaveRequestDto request) {
+		String methodName = "savePerson";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		boolean isNew = request.getPersonId() == null || request.getPersonId().isBlank();
+		if (!isNew && !ID_SHAPE.matcher(request.getPersonId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		Set<String> changed = new LinkedHashSet<>();
+		WealthPersonEntity values = new WealthPersonEntity();
+		values.setKind(WealthServiceConstants.PEOPLE_KIND_PERSONAL);
+		values.setStatus(WealthServiceConstants.PEOPLE_STATUS_OPEN);
+		if (request.getName() != null) {
+			String name = cleanName(request.getName());
+			if (name.isEmpty()) {
+				throw new KarthiException(BaseError.INVALID_REQUEST);
+			}
+			values.setName(name);
+			changed.add(WealthServiceConstants.PEOPLE_FIELD_NAME);
+		}
+		if (request.getKind() != null) {
+			if (!oneOf(request.getKind(), WealthServiceConstants.PEOPLE_KIND_PERSONAL, WealthServiceConstants.PEOPLE_KIND_PLATFORM)) {
+				throw new KarthiException(BaseError.INVALID_REQUEST);
+			}
+			values.setKind(request.getKind());
+			changed.add(WealthServiceConstants.PEOPLE_FIELD_KIND);
+		}
+		if (request.getDueOn() != null) {
+			if (!request.getDueOn().isBlank()) {
+				try {
+					values.setDueOn(LocalDate.parse(request.getDueOn().trim()).toString());
+				} catch (DateTimeParseException e) {
+					throw new KarthiException(BaseError.DATE_INVALID);
+				}
+			}
+			changed.add(WealthServiceConstants.PEOPLE_FIELD_DUE_ON);
+		}
+		if (request.getAnnualRate() != null) {
+			if (!request.getAnnualRate().isBlank()) {
+				BigDecimal percent;
+				try {
+					percent = new BigDecimal(request.getAnnualRate().trim());
+				} catch (NumberFormatException e) {
+					throw new KarthiException(BaseError.RATE_INVALID);
+				}
+				if (percent.signum() < 0 || percent.doubleValue() > WealthServiceConstants.PEOPLE_RATE_MAX) {
+					throw new KarthiException(BaseError.RATE_INVALID);
+				}
+				values.setAnnualRate(percent.divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP));
+			}
+			changed.add(WealthServiceConstants.PEOPLE_FIELD_RATE);
+		}
+		if (request.getStatus() != null) {
+			if (!oneOf(request.getStatus(), WealthServiceConstants.PEOPLE_STATUS_OPEN, WealthServiceConstants.PEOPLE_STATUS_SETTLED, WealthServiceConstants.PEOPLE_STATUS_WRITTEN_OFF,
+					WealthServiceConstants.PEOPLE_STATUS_REMOVED)) {
+				throw new KarthiException(BaseError.INVALID_REQUEST);
+			}
+			values.setStatus(request.getStatus());
+			changed.add(WealthServiceConstants.PEOPLE_FIELD_STATUS);
+		}
+		if (request.getNote() != null) {
+			values.setNote(noteOf(request.getNote()));
+			changed.add(WealthServiceConstants.PEOPLE_FIELD_NOTE);
+		}
+		if (request.getHidden() != null) {
+			values.setHidden(request.getHidden());
+			changed.add(WealthServiceConstants.PEOPLE_FIELD_HIDDEN);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		PersonSaveResultDto result = new PersonSaveResultDto();
+		result.setDryRun(Boolean.TRUE.equals(request.getDryRun()));
+		if (isNew) {
+			if (values.getName() == null) {
+				throw new KarthiException(BaseError.INVALID_REQUEST);
+			}
+			result.getChanged().addAll(changed);
+			if (!result.isDryRun()) {
+				String id = peopleDao.insertPerson(userId, values);
+				if (id == null) {
+					throw new KarthiException(BaseError.PERSON_NAME_TAKEN);
+				}
+				result.setPersonId(id);
+				result.setStored(true);
+			}
+		} else {
+			WealthPersonEntity found = peopleDao.findPerson(userId, request.getPersonId());
+			if (found == null || WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(found.getStatus())) {
+				throw new KarthiException(BaseError.PERSON_NOT_FOUND);
+			}
+			String keepAlias = null;
+			if (changed.contains(WealthServiceConstants.PEOPLE_FIELD_NAME)) {
+				if (values.getName().equals(found.getName())) {
+					changed.remove(WealthServiceConstants.PEOPLE_FIELD_NAME);
+				} else {
+					keepAlias = personOf(found.getName());
+				}
+			}
+			if (WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(values.getStatus()) && changed.contains(WealthServiceConstants.PEOPLE_FIELD_STATUS)
+					&& peopleDao.countPersonRecords(found.getId()) > 0) {
+				throw new KarthiException(BaseError.PERSON_HAS_RECORDS);
+			}
+			if (changed.isEmpty()) {
+				throw new KarthiException(BaseError.INVALID_REQUEST);
+			}
+			result.setPersonId(found.getId());
+			result.getChanged().addAll(changed);
+			if (!result.isDryRun()) {
+				if (!peopleDao.updatePerson(userId, found.getId(), changed, values, keepAlias)) {
+					throw new KarthiException(BaseError.PERSON_NOT_FOUND);
+				}
+				result.setStored(true);
+			}
+		}
+		if (result.isStored()) {
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | stored=" + result.isStored());
+		return result;
+	}
+
+	// ---- a person's share link and the public page ----
+
+	// The SHA-256 of a secret as base64url without padding, the way the old app stored it (so links made there keep working).
+	static String hashOf(String token) {
+		try {
+			return Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		}
+	}
+
+	@Override
+	public ShareUpdateResultDto updateShare(ShareUpdateRequestDto request) {
+		String methodName = "updateShare";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getEnabled() == null || request.getPersonId() == null || !ID_SHAPE.matcher(request.getPersonId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		WealthPersonEntity found = peopleDao.findPerson(userId, request.getPersonId());
+		if (found == null || WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(found.getStatus())) {
+			throw new KarthiException(BaseError.PERSON_NOT_FOUND);
+		}
+		ShareUpdateResultDto result = new ShareUpdateResultDto();
+		if (request.getEnabled()) {
+			byte[] bytes = new byte[WealthServiceConstants.SHARE_TOKEN_BYTES];
+			RANDOM.nextBytes(bytes);
+			String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+			if (!peopleDao.setShareToken(userId, found.getId(), hashOf(token))) {
+				throw new KarthiException(BaseError.PERSON_NOT_FOUND);
+			}
+			result.setShared(true);
+			result.setPath(WealthServiceConstants.SHARE_PATH_PREFIX + token);
+		} else if (!peopleDao.clearShareToken(userId, found.getId())) {
+			throw new KarthiException(BaseError.PERSON_NOT_FOUND);
+		}
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | shared=" + result.isShared());
+		return result;
+	}
+
+	@Override
+	public LendViewDto lendView(LendViewRequestDto request) {
+		String methodName = "lendView";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (rateLimiter != null && !rateLimiter.attempt(WealthServiceConstants.LEND_VIEW_RATE_KEY + RequestHeaderUtil.getIp(), WealthServiceConstants.LEND_VIEW_IP_LIMIT,
+				WealthServiceConstants.LEND_VIEW_WINDOW_SECONDS)) {
+			throw new KarthiException(BaseError.LINK_RATE_LIMITED);
+		}
+		WealthPersonEntity owner = ownerOf(request == null ? null : request.getToken());
+		PeopleOverviewDto overview = buildOverview(owner.getUserId());
+		PersonDto me = overview.getPeople().stream().filter(p -> owner.getId().equals(p.getId())).findFirst().orElseThrow(() -> new KarthiException(BaseError.SHARE_LINK_INVALID));
+		LendViewDto dto = new LendViewDto();
+		dto.setName(me.getName());
+		dto.setOwed(me.getOwed());
+		dto.setLent(me.getLent());
+		dto.setRepaid(me.getRepaid());
+		dto.setStatus(me.getStatus());
+		dto.setAsOf(overview.getAsOf());
+		for (PersonItemDto item : me.getItems()) {
+			boolean bill = WealthServiceConstants.PEOPLE_ITEM_BILL.equals(item.getType());
+			LendViewItemDto line = new LendViewItemDto();
+			line.setEntryId(item.getEntryId());
+			line.setShareId(item.getShareId());
+			line.setOn(item.getOn());
+			// a bill's own text can carry card or account digits, so the person sees only that it is a share of a bill
+			line.setLabel(bill ? WealthServiceConstants.PEOPLE_LABEL_SHARE_OF + WealthServiceConstants.PEOPLE_LABEL_A_BILL : item.getLabel());
+			line.setAmount(item.getAmount());
+			line.setDirection(item.getDirection());
+			line.setWrittenOff(item.isWrittenOff());
+			line.setNote(item.getNote());
+			line.setPaid(bill ? item.isPaid() : null);
+			line.setComments(item.getComments());
+			dto.getItems().add(line);
+		}
+		for (WealthLendRequestEntity sent : peopleDao.findLendViewRequests(me.getId())) {
+			LendViewRequestRowDto row = new LendViewRequestRowDto();
+			row.setAmount(sent.getAmount());
+			row.setPaidOn(sent.getPaidOn());
+			row.setMethod(sent.getMethod());
+			row.setStatus(sent.getStatus());
+			row.setAcceptedAmount(sent.getAcceptedAmount());
+			row.setSentAt(sent.getCreatedAt() == null ? null : sent.getCreatedAt().toInstant().toString());
+			dto.getRequests().add(row);
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | items=" + dto.getItems().size());
+		return dto;
+	}
+
+	// The person a share secret belongs to. The secret is 32 to 64 URL-safe characters; a wrong, old or turned-off one gets one generic refusal.
+	private WealthPersonEntity ownerOf(String token) {
+		if (token == null || !token.matches(WealthServiceConstants.SHARE_TOKEN_PATTERN)) {
+			throw new KarthiException(BaseError.SHARE_LINK_INVALID);
+		}
+		WealthPersonEntity owner = peopleDao.findPersonByShareHash(hashOf(token));
+		if (owner == null) {
+			throw new KarthiException(BaseError.SHARE_LINK_INVALID);
+		}
+		return owner;
+	}
+
+	// Every public call counts against the caller's address.
+	private void limit(String keyPrefix, long limit) {
+		if (rateLimiter != null && !rateLimiter.attempt(keyPrefix + RequestHeaderUtil.getIp(), limit, WealthServiceConstants.LEND_VIEW_WINDOW_SECONDS)) {
+			throw new KarthiException(BaseError.LINK_RATE_LIMITED);
+		}
+	}
+
+	// Free text from a person or the owner: control characters become spaces, trimmed, cut to the limit; empty is nothing.
+	private static String textOf(String value, int max) {
+		String text = cut(value == null ? "" : value.replaceAll("[\\u0000-\\u001f]", " "), max);
+		return text.isEmpty() ? null : text;
+	}
+
+	@Override
+	public LendPaidResultDto lendPaid(LendPaidRequestDto request) {
+		String methodName = "lendPaid";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		limit(WealthServiceConstants.LEND_PAID_RATE_KEY, WealthServiceConstants.LEND_PAID_IP_LIMIT);
+		WealthPersonEntity owner = ownerOf(request == null ? null : request.getToken());
+		if (request.getAmount() == null || request.getAmount().signum() <= 0 || request.getAmount().doubleValue() > WealthServiceConstants.LEND_PAID_AMOUNT_MAX) {
+			throw new KarthiException(BaseError.ENTRY_AMOUNT_INVALID);
+		}
+		String paidOn = dayOrToday(request.getPaidOn());
+		if (paidOn.compareTo(WealthServiceConstants.LEND_PAID_MIN_DAY) < 0) {
+			throw new KarthiException(BaseError.DATE_INVALID);
+		}
+		String method = request.getMethod() == null || request.getMethod().isBlank() ? "upi" : request.getMethod();
+		if (!oneOf(method, "upi", "bank", "cash", "other")) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		if (peopleDao.countPendingRequests(owner.getId()) >= WealthServiceConstants.LEND_PAID_PENDING_MAX) {
+			throw new KarthiException(BaseError.PAID_TOO_MANY_WAITING);
+		}
+		peopleDao.addLendRequest(owner.getId(), request.getAmount().setScale(2, RoundingMode.HALF_UP), paidOn, method, textOf(request.getNote(), WealthServiceConstants.LEND_PAID_NOTE_MAX));
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, owner.getUserId());
+		LendPaidResultDto result = new LendPaidResultDto();
+		result.setStored(true);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return result;
+	}
+
+	@Override
+	public LendRemarkResultDto lendRemark(LendRemarkRequestDto request) {
+		String methodName = "lendRemark";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		limit(WealthServiceConstants.LEND_REMARK_RATE_KEY, WealthServiceConstants.LEND_REMARK_IP_LIMIT);
+		WealthPersonEntity owner = ownerOf(request == null ? null : request.getToken());
+		String body = textOf(request.getBody(), WealthServiceConstants.PEOPLE_NOTE_MAX_LENGTH);
+		boolean byEntry = request.getEntryId() != null && !request.getEntryId().isBlank();
+		boolean byShare = request.getShareId() != null && !request.getShareId().isBlank();
+		if (body == null || byEntry == byShare || !ID_SHAPE.matcher(byEntry ? request.getEntryId() : request.getShareId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		if (byEntry ? !peopleDao.entryOfPerson(request.getEntryId(), owner.getId()) : !peopleDao.shareOfPerson(request.getShareId(), owner.getId())) {
+			throw new KarthiException(byEntry ? BaseError.ENTRY_NOT_FOUND : BaseError.SHARE_NOT_FOUND);
+		}
+		Timestamp since = Timestamp.from(clock.instant().minus(Duration.ofHours(24)));
+		if (peopleDao.countPersonRemarksSince(owner.getId(), since) >= WealthServiceConstants.LEND_REMARKS_PER_DAY) {
+			throw new KarthiException(BaseError.REMARK_LIMIT);
+		}
+		peopleDao.addRemark(owner.getId(), byEntry ? request.getEntryId() : null, byEntry ? null : request.getShareId(), WealthServiceConstants.PEOPLE_AUTHOR_PERSON, body, WealthServiceConstants.ACTOR_LEND_LINK);
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, owner.getUserId());
+		LendRemarkResultDto result = new LendRemarkResultDto();
+		result.setStored(true);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return result;
+	}
+
+	@Override
+	public CommentCreateResultDto createComment(CommentCreateRequestDto request) {
+		String methodName = "createComment";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String body = textOf(request.getBody(), WealthServiceConstants.PEOPLE_NOTE_MAX_LENGTH);
+		boolean byEntry = request.getEntryId() != null && !request.getEntryId().isBlank();
+		boolean byShare = request.getShareId() != null && !request.getShareId().isBlank();
+		if (body == null || byEntry == byShare || !ID_SHAPE.matcher(byEntry ? request.getEntryId() : request.getShareId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		String personId = byEntry ? peopleDao.findEntryPersonOfOwner(userId, request.getEntryId()) : peopleDao.findSharePersonOfOwner(userId, request.getShareId());
+		if (personId == null) {
+			throw new KarthiException(byEntry ? BaseError.ENTRY_NOT_FOUND : BaseError.SHARE_NOT_FOUND);
+		}
+		CommentCreateResultDto result = new CommentCreateResultDto();
+		result.setCommentId(peopleDao.addRemark(personId, byEntry ? request.getEntryId() : null, byEntry ? null : request.getShareId(), WealthServiceConstants.PEOPLE_AUTHOR_OWNER, body,
+				WealthServiceConstants.ACTOR_OWNER));
+		result.setStored(true);
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return result;
+	}
+
+	@Override
+	public EntryNoteResultDto updateEntryNote(EntryNoteRequestDto request) {
+		String methodName = "updateEntryNote";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getEntryId() == null || !ID_SHAPE.matcher(request.getEntryId()).matches()) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		String note = textOf(request.getNote(), WealthServiceConstants.ENTRY_NOTE_MAX_LENGTH);
+		if (!peopleDao.setEntryNote(userId, request.getEntryId(), note)) {
+			throw new KarthiException(BaseError.ENTRY_NOT_FOUND);
+		}
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+		EntryNoteResultDto result = new EntryNoteResultDto();
+		result.setStored(true);
+		result.setNote(note);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName);
+		return result;
+	}
+
+	@Override
+	public RequestDecideResultDto decideRequest(RequestDecideRequestDto request) {
+		String methodName = "decideRequest";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getRequestId() == null || !ID_SHAPE.matcher(request.getRequestId()).matches()
+				|| !oneOf(request.getDecision(), WealthServiceConstants.PEOPLE_DECISION_ACCEPT, WealthServiceConstants.PEOPLE_DECISION_DECLINE)) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		WealthLendRequestEntity found = peopleDao.findRequestOfOwner(userId, request.getRequestId());
+		if (found == null) {
+			throw new KarthiException(BaseError.REQUEST_NOT_FOUND);
+		}
+		if (!WealthServiceConstants.PEOPLE_REQUEST_PENDING.equals(found.getStatus())) {
+			throw new KarthiException(BaseError.REQUEST_ALREADY_DECIDED);
+		}
+		RequestDecideResultDto result = new RequestDecideResultDto();
+		result.setDecision(request.getDecision());
+		if (WealthServiceConstants.PEOPLE_DECISION_DECLINE.equals(request.getDecision())) {
+			if (!peopleDao.declineRequest(userId, found.getId())) {
+				throw new KarthiException(BaseError.REQUEST_ALREADY_DECIDED);
+			}
+		} else {
+			BigDecimal amount = request.getAmount() == null ? found.getAmount() : request.getAmount();
+			if (!amountOk(amount)) {
+				throw new KarthiException(BaseError.ENTRY_AMOUNT_INVALID);
+			}
+			amount = amount.setScale(2, RoundingMode.HALF_UP);
+			String paidOn = dayOrToday(request.getPaidOn() == null || request.getPaidOn().isBlank() ? found.getPaidOn() : request.getPaidOn());
+			double owedBefore = buildOverview().getPeople().stream().filter(p -> found.getPersonId().equals(p.getId())).mapToDouble(p -> p.getOwed().doubleValue()).findFirst().orElse(0);
+			boolean closeLend = request.getCloseLend() == null ? amount.doubleValue() >= owedBefore - WealthServiceConstants.PEOPLE_COVERS_TOLERANCE : request.getCloseLend();
+			String note = "Paid back via shared link (" + found.getMethod() + (found.getNote() == null || found.getNote().isBlank() ? "" : ": " + found.getNote()) + ")";
+			if (!peopleDao.acceptRequest(userId, found, amount, paidOn, closeLend, note)) {
+				throw new KarthiException(BaseError.REQUEST_ALREADY_DECIDED);
+			}
+			result.setAmount(amount);
+			result.setPaidOn(paidOn);
+			result.setCloseLend(closeLend);
+		}
+		result.setStored(true);
+		nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | decision=" + request.getDecision());
+		return result;
+	}
+
+	@Override
+	public PersonMergeResultDto mergePeople(PersonMergeRequestDto request) {
+		String methodName = "mergePeople";
+		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
+		if (request == null || request.getFromId() == null || request.getIntoId() == null || !ID_SHAPE.matcher(request.getFromId()).matches() || !ID_SHAPE.matcher(request.getIntoId()).matches()
+				|| request.getFromId().equalsIgnoreCase(request.getIntoId())) {
+			throw new KarthiException(BaseError.INVALID_REQUEST);
+		}
+		String userId = RequestHeaderUtil.getUserId();
+		WealthPersonEntity from = peopleDao.findPerson(userId, request.getFromId());
+		WealthPersonEntity into = peopleDao.findPerson(userId, request.getIntoId());
+		if (from == null || into == null || WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(from.getStatus()) || WealthServiceConstants.PEOPLE_STATUS_REMOVED.equals(into.getStatus())) {
+			throw new KarthiException(BaseError.PERSON_NOT_FOUND);
+		}
+		if (peopleDao.findMergeClash(into.getId(), from.getId()) != null) {
+			throw new KarthiException(BaseError.MERGE_BOTH_IN_SPLIT);
+		}
+		PersonMergeResultDto result = new PersonMergeResultDto();
+		result.setDryRun(Boolean.TRUE.equals(request.getDryRun()));
+		result.setFrom(from.getName());
+		result.setInto(into.getName());
+		result.setPersonId(into.getId());
+		if (!result.isDryRun()) {
+			peopleDao.mergePeople(userId, from.getId(), into.getId(), personOf(from.getName()));
+			result.setStored(true);
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_PEOPLE, userId);
+			nexusReadService.evict(WealthServiceConstants.NEXUS_READ_TRANSACTIONS, userId);
+		}
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | stored=" + result.isStored());
+		return result;
+	}
+
 	private static String cut(String value, int max) {
 		String text = value == null ? "" : value.trim();
 		return text.length() > max ? text.substring(0, max) : text;
@@ -401,10 +1131,14 @@ public class PeopleServiceImple implements IfPeopleService {
 	// ---- the overview ----
 
 	private PeopleOverviewDto buildOverview() {
+		return buildOverview(RequestHeaderUtil.getUserId());
+	}
+
+	private PeopleOverviewDto buildOverview(String userId) {
 		String methodName = "list";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
 		PaginationDto paginationDto = new PaginationDto();
-		paginationDto.setUserId(RequestHeaderUtil.getUserId());
+		paginationDto.setUserId(userId);
 		String today = LocalDate.now(clock.withZone(IST)).toString();
 		List<WealthPersonEntity> people = peopleDao.findPeople(paginationDto);
 		List<WealthPersonEntryEntity> entries = peopleDao.findEntries(paginationDto);

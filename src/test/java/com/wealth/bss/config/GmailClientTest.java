@@ -63,6 +63,37 @@ class GmailClientTest {
 	}
 
 	@Test
+	void thePdfAttachmentsOfAMailCarryTheDateGmailGaveIt() {
+		server.createContext("/gmail/v1/users/me/messages/abc123def456", exchange -> reply(exchange, 200,
+				"{\"internalDate\":\"1792000000000\",\"payload\":{\"parts\":[{\"filename\":\"card.pdf\",\"body\":{\"attachmentId\":\"att-one-0000001\"}},{\"filename\":\"note.txt\",\"body\":{\"attachmentId\":\"att-two-0000002\"}}]}}"));
+
+		java.util.List<GmailClient.Attachment> pdfs = client.pdfAttachments(base, "acc", "abc123def456");
+
+		assertEquals(1, pdfs.size());
+		assertEquals("card.pdf", pdfs.get(0).name());
+		assertEquals(1_792_000_000_000L, pdfs.get(0).receivedMs());
+	}
+
+	@Test
+	void aBusyGoogleAnswerIsTriedOnceMoreButARefusalIsNot() {
+		java.util.concurrent.atomic.AtomicInteger busyCalls = new java.util.concurrent.atomic.AtomicInteger();
+		java.util.concurrent.atomic.AtomicInteger deniedCalls = new java.util.concurrent.atomic.AtomicInteger();
+		server.createContext("/gmail/v1/users/me/messages", exchange -> {
+			if (exchange.getRequestURI().getQuery().contains("busy")) {
+				reply(exchange, busyCalls.incrementAndGet() == 1 ? 503 : 200, busyCalls.get() == 1 ? "{}" : "{\"messages\":[{\"id\":\"abc123def456\"}]}");
+			} else {
+				deniedCalls.incrementAndGet();
+				reply(exchange, 403, "{\"error\":{\"status\":\"PERMISSION_DENIED\"}}");
+			}
+		});
+
+		assertEquals(java.util.List.of("abc123def456"), client.messageIds(base, "acc", "busy", 5));
+		assertEquals(2, busyCalls.get(), "a 503 is tried again once");
+		assertThrows(IllegalStateException.class, () -> client.messageIds(base, "acc", "denied", 5));
+		assertEquals(1, deniedCalls.get(), "a refusal is not repeated");
+	}
+
+	@Test
 	void theConsentAddressAsksForReadOnlyOfflineAccessAndEncodesEveryValue() {
 		String url = client.consentUrl("id 1", "https://app.example.com/cb", "a+b/c=");
 		assertTrue(url.startsWith(base + "/auth?client_id=id+1&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb"));

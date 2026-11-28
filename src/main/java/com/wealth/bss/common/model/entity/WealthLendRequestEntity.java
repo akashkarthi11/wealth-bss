@@ -19,6 +19,8 @@ public class WealthLendRequestEntity extends GenericEntity {
 	private BigDecimal amount;
 	private String paidOn;
 	private String method;
+	private String status;
+	private BigDecimal acceptedAmount;
 	private String note;
 	private Timestamp createdAt;
 

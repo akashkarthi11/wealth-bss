@@ -43,6 +43,7 @@ class AdminServiceImpleTest {
 	private IfWealthRoleDao roles;
 	private IfWealthSnapshotDao snapshots;
 	private com.wealth.bss.common.model.dao.IfWealthMenuDao menuDao;
+	private com.wealth.bss.nexus.service.IfNexusReadService readCache;
 	private AdminServiceImple service;
 
 	// A small menu table: four entries a role can be given (one is a submenu of banks) and two the admin always has.
@@ -78,7 +79,8 @@ class AdminServiceImpleTest {
 				entry("banks-statements", "banks", false, false, 25), entry("investments", null, false, false, 30), entry("records", null, true, true, 40),
 				entry("settings", null, true, true, 50), entry("settings-menus", "settings", true, true, 60)));
 		when(roles.findAllRoles()).thenReturn(List.of(role("admin", "Admin", true), role("user", "User", false), role("family", "Family", false)));
-		service = new AdminServiceImple(context, users, roles, snapshots, menuDao);
+		readCache = mock(com.wealth.bss.nexus.service.IfNexusReadService.class);
+		service = new AdminServiceImple(context, users, roles, snapshots, menuDao, readCache);
 		RequestHeaderUtil.setUserId(ADMIN_ID);
 	}
 

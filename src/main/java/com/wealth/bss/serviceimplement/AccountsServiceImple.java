@@ -1,5 +1,6 @@
 package com.wealth.bss.serviceimplement;
 
+import java.time.Duration;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -22,6 +23,7 @@ import com.wealth.bss.common.model.entity.WealthAccountSplitBalanceEntity;
 import com.wealth.bss.common.model.entity.WealthAccountSplitEntity;
 import com.wealth.bss.common.model.entity.WealthAccountSplitMoveEntity;
 import com.wealth.bss.common.model.entity.WealthAccountSubtypeEntity;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfAccountsService;
@@ -333,7 +335,10 @@ public class AccountsServiceImple implements IfAccountsService {
 	public List<AccountSubtypeDto> subtypes() {
 		String methodName = "subtypes";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
-		List<AccountSubtypeDto> result = GenericAssembler.toDTOList(wealthAccountDao.findAllSubtypes(), AccountSubtypeDto.class);
+		// the account types are a small table that hardly ever changes: one copy for everyone, kept for an hour
+		List<AccountSubtypeDto> result = nexusReadService.rememberShared(WealthServiceConstants.NEXUS_READ_SUBTYPES, "", Duration.ofSeconds(WealthServiceConstants.NEXUS_MEMO_SUBTYPES_SECONDS),
+				new TypeReference<List<AccountSubtypeDto>>() {
+				}, () -> GenericAssembler.toDTOList(wealthAccountDao.findAllSubtypes(), AccountSubtypeDto.class));
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | rows=" + result.size());
 		return result;
 	}

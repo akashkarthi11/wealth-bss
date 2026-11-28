@@ -70,6 +70,9 @@ public interface IfGmailServiceContract {
 	@PostMapping(WealthServiceConstants.GMAIL_STATEMENT_DOWNLOAD)
 	ResponseEntity<ApiResponse<StatementFileDto, Void>> statementDownload(@RequestBody StatementDownloadRequestDto request) throws KarthiException;
 
+	@PostMapping(WealthServiceConstants.GMAIL_STATEMENT_ROWS)
+	ResponseEntity<ApiResponse<java.util.List<com.wealth.common.model.dto.admin.StatementRowDto>, Void>> statementRows(@RequestBody StatementDownloadRequestDto request) throws KarthiException;
+
 	@PostMapping(WealthServiceConstants.GMAIL_STATEMENT_RETRY)
 	ResponseEntity<ApiResponse<GmailStatementResultDto, Void>> statementRetry(@RequestBody StatementRetryRequestDto request) throws KarthiException;
 

@@ -114,6 +114,8 @@ class AccountsServiceImpleTest {
 		};
 		when(nexus.read(any(), any(Class.class), any(java.util.function.Supplier.class))).thenAnswer(answer);
 		when(nexus.hardRefresh(any(), any(Class.class), any(java.util.function.Supplier.class))).thenAnswer(answer);
+		when(nexus.remember(any(), any(), any(), any(), any())).thenAnswer(call -> ((java.util.function.Supplier<?>) call.getArgument(4)).get());
+		when(nexus.rememberShared(any(), any(), any(), any(), any())).thenAnswer(call -> ((java.util.function.Supplier<?>) call.getArgument(4)).get());
 	}
 
 	@Test

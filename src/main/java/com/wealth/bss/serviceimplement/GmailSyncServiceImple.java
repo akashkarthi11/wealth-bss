@@ -1,5 +1,6 @@
 package com.wealth.bss.serviceimplement;
 
+import java.util.function.Supplier;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -45,18 +46,20 @@ public class GmailSyncServiceImple implements IfGmailSyncService {
 	private final IfNexusEventService events;
 	private final Executor workers;
 	private final ScheduledExecutorService beat;
+	private final long[] retryPausesMillis;
 
 	@Autowired
 	public GmailSyncServiceImple(IfWealthUserConnectionDao userDao, IfGmailService gmail, IfNexusEventService events) {
-		this(userDao, gmail, events, Executors.newFixedThreadPool(WealthServiceConstants.SYNC_WORKERS, daemon("gmail-sync")), Executors.newSingleThreadScheduledExecutor(daemon("gmail-sync-beat")));
+		this(userDao, gmail, events, Executors.newFixedThreadPool(WealthServiceConstants.SYNC_WORKERS, daemon("gmail-sync")), Executors.newSingleThreadScheduledExecutor(daemon("gmail-sync-beat")), java.util.Arrays.stream(WealthServiceConstants.SYNC_RETRY_PAUSE_SECONDS).mapToLong(seconds -> seconds * 1000L).toArray());
 	}
 
-	GmailSyncServiceImple(IfWealthUserConnectionDao userDao, IfGmailService gmail, IfNexusEventService events, Executor workers, ScheduledExecutorService beat) {
+	GmailSyncServiceImple(IfWealthUserConnectionDao userDao, IfGmailService gmail, IfNexusEventService events, Executor workers, ScheduledExecutorService beat, long[] retryPausesMillis) {
 		this.userDao = userDao;
 		this.gmail = gmail;
 		this.events = events;
 		this.workers = workers;
 		this.beat = beat;
+		this.retryPausesMillis = retryPausesMillis;
 		events.onGmailSync(this::onRequest);
 	}
 
@@ -142,7 +145,7 @@ public class GmailSyncServiceImple implements IfGmailSyncService {
 				userDao.setSyncStage(userId, provider, WealthServiceConstants.SYNC_READING_ALERTS);
 				result.remove(KEY_ALERTS);
 				try {
-					GmailFetchResultDto alerts = gmail.fetch();
+					GmailFetchResultDto alerts = withRetries(gmail::fetch, KEY_ALERTS);
 					result.set(KEY_ALERTS, MAPPER.valueToTree(alerts));
 				} catch (KarthiException e) {
 					note.append(KEY_ALERTS).append("=").append(e.getMessage()).append(" ");
@@ -152,7 +155,7 @@ public class GmailSyncServiceImple implements IfGmailSyncService {
 				userDao.setSyncStage(userId, provider, WealthServiceConstants.SYNC_READING_STATEMENTS);
 				result.remove(KEY_STATEMENTS);
 				try {
-					GmailStatementResultDto statements = gmail.statements();
+					GmailStatementResultDto statements = withRetries(gmail::statements, KEY_STATEMENTS);
 					result.set(KEY_STATEMENTS, MAPPER.valueToTree(statements));
 				} catch (KarthiException e) {
 					note.append(KEY_STATEMENTS).append("=").append(e.getMessage()).append(" ");
@@ -166,6 +169,27 @@ public class GmailSyncServiceImple implements IfGmailSyncService {
 		} finally {
 			heartbeat.cancel(false);
 			RequestHeaderUtil.clear();
+		}
+	}
+
+	// A read that failed only because Gmail could not be reached for a moment is tried again in the background after each pause; the sync keeps its heartbeat meanwhile, so the screen still shows it as reading.
+	// Any other failure (not connected, nothing saved to read with) is final at once.
+	private <T> T withRetries(Supplier<T> read, String part) {
+		for (int attempt = 0;; attempt++) {
+			try {
+				return read.get();
+			} catch (KarthiException e) {
+				if (!BaseError.GMAIL_FETCH_FAILED.equals(e.getMessage()) || attempt >= retryPausesMillis.length) {
+					throw e;
+				}
+				LOGGER.warn("The Gmail " + part + " read failed; trying again in " + retryPausesMillis[attempt] / 1000 + " s (retry " + (attempt + 1) + " of " + retryPausesMillis.length + ")");
+				try {
+					Thread.sleep(retryPausesMillis[attempt]);
+				} catch (InterruptedException interrupted) {
+					Thread.currentThread().interrupt();
+					throw e;
+				}
+			}
 		}
 	}
 

@@ -549,6 +549,79 @@ class GmailServiceImpleTest {
 	}
 
 	@Test
+	void theRowsOfAnOpenedStatementAreListedOldestFirstAndOnlyForTheOwner() {
+		connected();
+		String id = "11111111-1111-1111-1111-111111111111";
+		com.wealth.bss.common.model.entity.WealthStatementFigureEntity row = new com.wealth.bss.common.model.entity.WealthStatementFigureEntity();
+		row.setId(id);
+		row.setStatus("opened");
+		row.setLines("[{\"day\":\"2026-03-12\",\"time\":null,\"description\":\"Swiggy\",\"amount\":\"450.50\",\"debit\":true,\"sure\":true},"
+				+ "{\"day\":\"2026-03-02\",\"time\":\"10:15\",\"description\":\"Payment received\",\"amount\":\"1000\",\"debit\":false,\"sure\":false}]");
+		when(statements.find("user-1", id)).thenReturn(row);
+		com.wealth.common.model.dto.admin.StatementDownloadRequestDto request = new com.wealth.common.model.dto.admin.StatementDownloadRequestDto();
+		request.setId(id);
+
+		var rows = service.statementRows(request);
+
+		assertEquals(2, rows.size());
+		assertEquals("Payment received", rows.get(0).getDescription(), "the earlier day comes first");
+		assertFalse(rows.get(0).isDebit());
+		assertFalse(rows.get(0).isSure());
+		assertEquals("10:15", rows.get(0).getTime());
+		assertEquals("Swiggy", rows.get(1).getDescription());
+		assertEquals(0, new java.math.BigDecimal("450.50").compareTo(rows.get(1).getAmount()));
+		assertTrue(rows.get(1).isDebit());
+
+		request.setId("22222222-2222-2222-2222-222222222222");
+		assertEquals(BaseError.GMAIL_REQUEST_INVALID, codeOf(() -> service.statementRows(request)), "not the user's statement");
+		request.setId("not an id");
+		assertEquals(BaseError.GMAIL_REQUEST_INVALID, codeOf(() -> service.statementRows(request)));
+	}
+
+	@Test
+	void theDateGmailGaveTheMailIsKeptAsTheFileDateOfItsStatements() throws java.io.IOException {
+		connected();
+		service.statementSave(passwords("ABCDE1234F", "01011990"));
+		byte[] good = com.wealth.bss.config.StatementReaderTest.pdf(java.util.List.of("Savings statement", "Closing Balance Rs. 40,000.00 Cr"), "01011990");
+		when(client.messageIds(eq(API), eq("fresh-access"), anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(java.util.List.of("m1"));
+		when(client.pdfAttachments(API, "fresh-access", "m1")).thenReturn(java.util.List.of(new GmailClient.Attachment("slice_statement_Oct_2026.pdf", "att-one-0000001", 1_792_000_000_000L)));
+		when(client.attachment(API, "fresh-access", "m1", "att-one-0000001")).thenReturn(good);
+
+		service.statements();
+
+		ArgumentCaptor<com.wealth.bss.common.model.entity.WealthStatementFigureEntity> saved = ArgumentCaptor.forClass(com.wealth.bss.common.model.entity.WealthStatementFigureEntity.class);
+		verify(statements).upsert(saved.capture());
+		assertEquals(new java.sql.Timestamp(1_792_000_000_000L), saved.getValue().getReceivedAt());
+	}
+
+	@Test
+	void aStatementMailGmailWillNotGiveIsSkippedAndCountedWhileTheOthersAreRead() throws java.io.IOException {
+		connected();
+		service.statementSave(passwords("ABCDE1234F", "01011990"));
+		byte[] good = com.wealth.bss.config.StatementReaderTest.pdf(java.util.List.of("Savings statement", "Closing Balance Rs. 40,000.00 Cr"), "01011990");
+		when(client.messageIds(eq(API), eq("fresh-access"), anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(java.util.List.of("m1", "m2"));
+		when(client.pdfAttachments(API, "fresh-access", "m1")).thenThrow(new IllegalStateException("Google could not be reached"));
+		when(client.pdfAttachments(API, "fresh-access", "m2")).thenReturn(java.util.List.of(new GmailClient.Attachment("slice_statement_Oct_2026.pdf", "att-one-0000001")));
+		when(client.attachment(API, "fresh-access", "m2", "att-one-0000001")).thenReturn(good);
+
+		var result = service.statements();
+
+		assertEquals(2, result.getRead());
+		assertEquals(1, result.getOpened());
+		assertEquals(1, result.getFailed(), "the mail that failed is counted so the user can read again");
+	}
+
+	@Test
+	void aStatementReadWhereEveryMailFailedIsAnError() {
+		connected();
+		service.statementSave(passwords("ABCDE1234F", "01011990"));
+		when(client.messageIds(eq(API), eq("fresh-access"), anyString(), org.mockito.ArgumentMatchers.anyInt())).thenReturn(java.util.List.of("m1"));
+		when(client.pdfAttachments(API, "fresh-access", "m1")).thenThrow(new IllegalStateException("Google could not be reached"));
+
+		assertEquals(BaseError.GMAIL_FETCH_FAILED, codeOf(service::statements));
+	}
+
+	@Test
 	void statementsAreOpenedInMemoryAndOnlyLabelledFiguresAreReturned() throws java.io.IOException {
 		connected();
 		assertEquals(BaseError.GMAIL_REQUEST_INVALID, codeOf(service::statements), "no statement passwords saved yet");

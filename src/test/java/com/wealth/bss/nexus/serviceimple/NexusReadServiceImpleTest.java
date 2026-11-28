@@ -255,4 +255,104 @@ class NexusReadServiceImpleTest {
 		assertEquals(2, loads.get());
 		verify(events, never()).publishRefresh(anyString(), anyString());
 	}
+
+	private static final java.time.Duration TTL = java.time.Duration.ofSeconds(60);
+	private static final com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>> LIST = new com.fasterxml.jackson.core.type.TypeReference<>() {
+	};
+
+	private java.util.List<String> loadList() {
+		loads.incrementAndGet();
+		return java.util.List.of(value, "x");
+	}
+
+	@Test
+	void aRememberedReadIsLoadedOnceAndKeptPerUserAndVariant() throws Exception {
+		assertEquals(java.util.List.of("v1", "x"), nexus.remember("summary", "a", TTL, LIST, this::loadList));
+		settle();
+		assertEquals(java.util.List.of("v1", "x"), nexus.remember("summary", "a", TTL, LIST, this::loadList));
+		assertEquals(1, loads.get(), "the second call is answered from the cache");
+
+		nexus.remember("summary", "b", TTL, LIST, this::loadList);
+		assertEquals(2, loads.get(), "another variant is another copy");
+
+		RequestHeaderUtil.setUserId(OTHER);
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+		assertEquals(3, loads.get(), "another user never sees this user's copy");
+	}
+
+	@Test
+	void aRememberedReadIsStoredInTheBackgroundAndAStoreFailureNeverReachesTheCaller() throws Exception {
+		java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+		executor.execute(() -> {
+			try {
+				gate.await();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+			}
+		});
+
+		assertEquals(java.util.List.of("v1", "x"), nexus.remember("summary", "a", TTL, LIST, this::loadList));
+		assertEquals(1, loads.get(), "the caller got the answer while the store was still waiting");
+		gate.countDown();
+		settle();
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+		assertEquals(1, loads.get(), "once stored, the next call is a hit");
+	}
+
+	@Test
+	void evictingAUsersReadDropsEveryRememberedVariantOfThatUserOnly() throws Exception {
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+		nexus.remember("summary", "b", TTL, LIST, this::loadList);
+		RequestHeaderUtil.setUserId(OTHER);
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+		settle();
+		assertEquals(3, loads.get());
+
+		now.addAndGet(5);
+		nexus.evict("summary", USER);
+
+		RequestHeaderUtil.setUserId(USER);
+		value = "v2";
+		assertEquals(java.util.List.of("v2", "x"), nexus.remember("summary", "a", TTL, LIST, this::loadList));
+		nexus.remember("summary", "b", TTL, LIST, this::loadList);
+		assertEquals(5, loads.get(), "both variants of the evicted user load again");
+		settle();
+		RequestHeaderUtil.setUserId(OTHER);
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+		assertEquals(5, loads.get(), "the other user's copy stays");
+	}
+
+	@Test
+	void aRememberedReadExpiresAfterItsTimeToLive() throws Exception {
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+		settle();
+		now.addAndGet(61_000);
+
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+
+		assertEquals(2, loads.get());
+	}
+
+	@Test
+	void aSharedReadIsOneCopyForEveryoneUntilItIsDropped() {
+		nexus.rememberShared("nav", "user", TTL, LIST, this::loadList);
+		RequestHeaderUtil.setUserId(OTHER);
+		nexus.rememberShared("nav", "user", TTL, LIST, this::loadList);
+		nexus.rememberShared("nav", "admin", TTL, LIST, this::loadList);
+		assertEquals(2, loads.get(), "one copy per variant, the same for both users");
+
+		nexus.evictShared("nav", "user");
+		nexus.rememberShared("nav", "user", TTL, LIST, this::loadList);
+		assertEquals(3, loads.get());
+	}
+
+	@Test
+	void withoutASignedInUserARememberedReadAlwaysLoads() {
+		RequestHeaderUtil.clear();
+
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+		nexus.remember("summary", "a", TTL, LIST, this::loadList);
+
+		assertEquals(2, loads.get());
+	}
 }

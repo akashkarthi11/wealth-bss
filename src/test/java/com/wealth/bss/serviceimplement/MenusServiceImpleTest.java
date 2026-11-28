@@ -42,7 +42,10 @@ class MenusServiceImpleTest {
 	void setUp() {
 		menus = mock(IfWealthMenuDao.class);
 		users = mock(IfWealthUserDao.class);
-		service = new MenusServiceImple(menus, users);
+		com.wealth.bss.nexus.service.IfNexusReadService readCache = mock(com.wealth.bss.nexus.service.IfNexusReadService.class);
+		when(readCache.remember(any(), any(), any(), any(), any())).thenAnswer(call -> ((java.util.function.Supplier<?>) call.getArgument(4)).get());
+		when(readCache.rememberShared(any(), any(), any(), any(), any())).thenAnswer(call -> ((java.util.function.Supplier<?>) call.getArgument(4)).get());
+		service = new MenusServiceImple(menus, users, readCache);
 		when(menus.findAll()).thenReturn(List.of(entry("overview", null, false, true, 10), entry("banks", null, false, true, 20),
 				entry("banks-statements", "banks", false, true, 21), entry("banks-cards", "banks", false, true, 22), entry("investments", null, false, false, 30),
 				entry("records", null, true, true, 40), entry("settings", null, true, true, 50), entry("settings-menus", "settings", true, true, 51)));

@@ -1,5 +1,6 @@
 package com.wealth.bss.serviceimplement;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -12,7 +13,9 @@ import com.wealth.bss.common.model.dao.IfWealthMenuDao;
 import com.wealth.bss.common.model.dao.IfWealthUserDao;
 import com.wealth.bss.common.model.dto.PaginationDto;
 import com.wealth.bss.common.model.entity.WealthMenuEntity;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.wealth.bss.constants.WealthServiceConstants;
+import com.wealth.bss.nexus.service.IfNexusReadService;
 import com.wealth.bss.serviceinterface.IfMenusService;
 import com.wealth.common.logger.KarthiLogger;
 import com.wealth.common.model.dto.ThreadLocalDto;
@@ -26,10 +29,12 @@ public class MenusServiceImple implements IfMenusService {
 
 	private final IfWealthMenuDao wealthMenuDao;
 	private final IfWealthUserDao wealthUserDao;
+	private final IfNexusReadService nexusReadService;
 
-	public MenusServiceImple(IfWealthMenuDao wealthMenuDao, IfWealthUserDao wealthUserDao) {
+	public MenusServiceImple(IfWealthMenuDao wealthMenuDao, IfWealthUserDao wealthUserDao, IfNexusReadService nexusReadService) {
 		this.wealthMenuDao = wealthMenuDao;
 		this.wealthUserDao = wealthUserDao;
+		this.nexusReadService = nexusReadService;
 	}
 
 	@Override
@@ -37,6 +42,19 @@ public class MenusServiceImple implements IfMenusService {
 		String methodName = "navigation";
 		LOGGER.info(WealthServiceConstants.ENTERING + methodName);
 		ThreadLocalDto caller = RequestHeaderUtil.getThreadLocalDto();
+		// the menus depend only on the role, so one copy per role is kept for a short while; saving a role's menus drops it
+		if (caller == null || caller.getRole() == null) {
+			return build(caller);
+		}
+		List<NavMenuDto> remembered = nexusReadService.rememberShared(WealthServiceConstants.NEXUS_READ_NAV, caller.getRole(), Duration.ofSeconds(WealthServiceConstants.NEXUS_MEMO_NAV_SECONDS),
+				new TypeReference<List<NavMenuDto>>() {
+				}, () -> build(caller));
+		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | menus=" + remembered.size());
+		return remembered;
+	}
+
+	private List<NavMenuDto> build(ThreadLocalDto caller) {
+		String methodName = "navigation";
 		boolean admin = caller != null && WealthServiceConstants.ROLE_ADMIN.equals(caller.getRole());
 		Set<String> allowed = admin || caller == null ? null : permissionsOf(caller.getRole());
 		List<WealthMenuEntity> all = wealthMenuDao.findAll();

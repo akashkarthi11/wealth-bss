@@ -38,6 +38,7 @@ public class GmailClient {
 	private static final java.util.regex.Pattern ATTACHMENT_ID = java.util.regex.Pattern.compile("^[A-Za-z0-9_-]{10,2000}$");
 	private static final String SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 	private static final int SECONDS = 15;
+	private static final long RETRY_PAUSE_MS = 700;
 
 	// What the code exchange returns: the refresh token that is kept, and the access token for the first read.
 	public record Tokens(String refreshToken, String accessToken) {
@@ -155,7 +156,10 @@ public class GmailClient {
 	}
 
 	// A PDF attached to a mail: its file name and the id to download it with.
-	public record Attachment(String name, String id) {
+	public record Attachment(String name, String id, long receivedMs) {
+		public Attachment(String name, String id) {
+			this(name, id, 0L);
+		}
 	}
 
 	// The PDF attachments of one mail (by file name), however deep the parts are nested.
@@ -166,7 +170,8 @@ public class GmailClient {
 		HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + MESSAGES_PATH + "/" + messageId + "?format=full")).timeout(Duration.ofSeconds(SECONDS))
 				.header("Authorization", "Bearer " + accessToken).header("Accept", "application/json").GET().build();
 		List<Attachment> found = new ArrayList<>();
-		findPdfs(send("message", request).path("payload"), found);
+		JsonNode mail = send("message", request);
+		findPdfs(mail.path("payload"), found, mail.path("internalDate").asLong(0));
 		return found;
 	}
 
@@ -184,14 +189,14 @@ public class GmailClient {
 		return Base64.getUrlDecoder().decode(data);
 	}
 
-	private void findPdfs(JsonNode part, List<Attachment> found) {
+	private void findPdfs(JsonNode part, List<Attachment> found, long receivedMs) {
 		String name = part.path("filename").asText("");
 		String id = part.path("body").path("attachmentId").asText("");
 		if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".pdf") && !id.isEmpty()) {
-			found.add(new Attachment(name, id));
+			found.add(new Attachment(name, id, receivedMs));
 		}
 		for (JsonNode child : part.path("parts")) {
-			findPdfs(child, found);
+			findPdfs(child, found, receivedMs);
 		}
 	}
 
@@ -229,7 +234,7 @@ public class GmailClient {
 		long started = System.nanoTime();
 		boolean worked = false;
 		try {
-			JsonNode answer = exchange(request);
+			JsonNode answer = attempt(request);
 			worked = true;
 			return answer;
 		} catch (IOException e) {
@@ -241,6 +246,26 @@ public class GmailClient {
 			if (usage != null) {
 				usage.recordExternal(PROVIDER, endpoint, worked, (System.nanoTime() - started) / 1_000_000L);
 			}
+		}
+	}
+
+	// A dropped connection, a timeout, a 429 or a 5xx is tried once more after a short pause; any other refusal, and a second failure, go to the caller.
+	private JsonNode attempt(HttpRequest request) throws IOException, InterruptedException {
+		try {
+			return exchange(request);
+		} catch (IOException | TransientRefusal e) {
+			LOGGER.warn("A Google call failed once (" + e.getClass().getSimpleName() + "); trying again");
+			Thread.sleep(RETRY_PAUSE_MS);
+			return exchange(request);
+		}
+	}
+
+	// A refusal worth one retry: Google is busy or failing for a moment.
+	private static final class TransientRefusal extends IllegalStateException {
+		private static final long serialVersionUID = 1L;
+
+		TransientRefusal(String message) {
+			super(message);
 		}
 	}
 
@@ -259,7 +284,8 @@ public class GmailClient {
 		if (response.statusCode() < 200 || response.statusCode() >= 300) {
 			String error = body.path("error").isTextual() ? body.path("error").asText("") : body.path("error").path("status").asText("");
 			LOGGER.warn("Google refused a request: HTTP " + response.statusCode());
-			throw new IllegalStateException("Google refused the request (" + (error.isEmpty() ? "HTTP " + response.statusCode() : error.replaceAll("[^A-Za-z0-9_ -]", "")) + ")");
+			String reason = "Google refused the request (" + (error.isEmpty() ? "HTTP " + response.statusCode() : error.replaceAll("[^A-Za-z0-9_ -]", "")) + ")";
+			throw response.statusCode() == 429 || response.statusCode() >= 500 ? new TransientRefusal(reason) : new IllegalStateException(reason);
 		}
 		return body;
 	}

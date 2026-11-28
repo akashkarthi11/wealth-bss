@@ -238,12 +238,21 @@ public class GmailServiceImple implements IfGmailService {
 			String access = client.accessToken(app.clientId(), app.clientSecret(), values.get("refreshToken"));
 			for (String id : client.messageIds(app.baseUrl(), access, WealthServiceConstants.GMAIL_STATEMENT_QUERY.replace(WealthServiceConstants.GMAIL_DAYS_TOKEN, String.valueOf(app.statementDays())), app.statementMax())) {
 				result.setRead(result.getRead() + 1);
-				for (GmailClient.Attachment pdf : client.pdfAttachments(app.baseUrl(), access, id)) {
-					openStatement(userId, id, pdf.name(), WealthServiceConstants.STATEMENT_ORIGIN_GMAIL, client.attachment(app.baseUrl(), access, id, pdf.id()), passwords, result, figures, ai);
+				// One mail Gmail will not give is skipped and counted; it does not stop the others.
+				try {
+					for (GmailClient.Attachment pdf : client.pdfAttachments(app.baseUrl(), access, id)) {
+						openStatement(userId, id, pdf.name(), WealthServiceConstants.STATEMENT_ORIGIN_GMAIL, client.attachment(app.baseUrl(), access, id, pdf.id()), passwords, result, figures, ai, stamp(pdf));
+					}
+				} catch (IllegalStateException e) {
+					result.setFailed(result.getFailed() + 1);
+					LOGGER.warn("A statement mail could not be read: " + e.getMessage());
 				}
 			}
 		} catch (IllegalStateException e) {
 			LOGGER.warn("Gmail statement read failed: " + e.getMessage());
+			throw new KarthiException(BaseError.GMAIL_FETCH_FAILED);
+		}
+		if (result.getFailed() > 0 && result.getOpened() + result.getLocked() == 0) {
 			throw new KarthiException(BaseError.GMAIL_FETCH_FAILED);
 		}
 		result.setFigures(figures);
@@ -336,6 +345,39 @@ public class GmailServiceImple implements IfGmailService {
 		return imported;
 	}
 
+	@Override
+	public List<com.wealth.common.model.dto.admin.StatementRowDto> statementRows(StatementDownloadRequestDto request) {
+		String userId = currentUser();
+		if (request == null || request.getId() == null || !ID_SHAPE.matcher(request.getId()).matches()) {
+			throw new KarthiException(BaseError.GMAIL_REQUEST_INVALID);
+		}
+		WealthStatementFigureEntity statement = statementDao.find(userId, request.getId());
+		if (statement == null || !WealthServiceConstants.STATEMENT_OPENED.equals(statement.getStatus())) {
+			throw new KarthiException(BaseError.GMAIL_REQUEST_INVALID);
+		}
+		List<Map<String, Object>> rows;
+		try {
+			rows = MAPPER.readValue(statement.getLines() == null ? "[]" : statement.getLines(), new TypeReference<List<Map<String, Object>>>() {
+			});
+		} catch (IOException e) {
+			throw new KarthiException(BaseError.GMAIL_REQUEST_INVALID);
+		}
+		List<com.wealth.common.model.dto.admin.StatementRowDto> listed = new ArrayList<>();
+		for (Map<String, Object> row : rows) {
+			com.wealth.common.model.dto.admin.StatementRowDto dto = new com.wealth.common.model.dto.admin.StatementRowDto();
+			dto.setDay(String.valueOf(row.get("day")));
+			dto.setTime(row.get("time") == null ? null : String.valueOf(row.get("time")));
+			dto.setDescription(String.valueOf(row.get("description")));
+			dto.setAmount(new BigDecimal(String.valueOf(row.get("amount"))));
+			dto.setDebit(Boolean.TRUE.equals(row.get("debit")));
+			dto.setSure(Boolean.TRUE.equals(row.get("sure")));
+			listed.add(dto);
+		}
+		// Oldest first, the order they happened (a stable sort keeps the statement's own order within a minute).
+		listed.sort(java.util.Comparator.comparing((com.wealth.common.model.dto.admin.StatementRowDto row) -> row.getDay() + " " + (row.getTime() == null ? "" : row.getTime())));
+		return listed;
+	}
+
 	private static String digest(String text) {
 		return digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
 	}
@@ -354,7 +396,7 @@ public class GmailServiceImple implements IfGmailService {
 	}
 
 	// A statement's figures as one JSON object (label to value), replacing what was saved for the same mail and file. A statement with no figure is not saved.
-	private void saveFigures(String userId, String mailId, String source, String origin, String status, String fileName, Map<String, String> figures, String linesJson) {
+	private void saveFigures(String userId, String mailId, String source, String origin, String status, String fileName, Map<String, String> figures, String linesJson, java.sql.Timestamp receivedAt) {
 		WealthStatementFigureEntity entity = new WealthStatementFigureEntity();
 		entity.setUserId(userId);
 		entity.setMailRef(mailId);
@@ -364,6 +406,7 @@ public class GmailServiceImple implements IfGmailService {
 		entity.setFileName(fileName == null || fileName.length() > WealthServiceConstants.STATEMENT_FILE_NAME_MAX ? null : fileName);
 		entity.setFigures(pack(figures));
 		entity.setLines(linesJson);
+		entity.setReceivedAt(receivedAt);
 		statementDao.upsert(entity);
 	}
 
@@ -414,7 +457,12 @@ public class GmailServiceImple implements IfGmailService {
 		}
 	}
 
-	private boolean openStatement(String userId, String mailId, String fileName, String origin, byte[] pdf, List<String> passwords, GmailStatementResultDto result, List<String> figures, AiBudget ai) {
+	// The date Gmail gave the mail (its internal date), the file date shown on screen; null when Gmail gave none or the file was uploaded.
+	private static java.sql.Timestamp stamp(GmailClient.Attachment pdf) {
+		return pdf.receivedMs() > 0 ? new java.sql.Timestamp(pdf.receivedMs()) : null;
+	}
+
+	private boolean openStatement(String userId, String mailId, String fileName, String origin, byte[] pdf, List<String> passwords, GmailStatementResultDto result, List<String> figures, AiBudget ai, java.sql.Timestamp receivedAt) {
 		String name = shownName(fileName);
 		String text = StatementReader.text(pdf, passwords);
 		if (text == null) {
@@ -422,7 +470,7 @@ public class GmailServiceImple implements IfGmailService {
 			if (!result.getLockedNames().contains(name)) {
 				result.getLockedNames().add(name);
 			}
-			saveFigures(userId, mailId, name, origin, WealthServiceConstants.STATEMENT_LOCKED, fileName, new LinkedHashMap<>(), "[]");
+			saveFigures(userId, mailId, name, origin, WealthServiceConstants.STATEMENT_LOCKED, fileName, new LinkedHashMap<>(), "[]", receivedAt);
 			return false;
 		}
 		result.setOpened(result.getOpened() + 1);
@@ -433,7 +481,7 @@ public class GmailServiceImple implements IfGmailService {
 		if (rows.isEmpty()) {
 			rows = aiRows(text, ai, result);
 		}
-		saveFigures(userId, mailId, name, origin, WealthServiceConstants.STATEMENT_OPENED, fileName, StatementReader.figureMap(text), rowsJson(rows));
+		saveFigures(userId, mailId, name, origin, WealthServiceConstants.STATEMENT_OPENED, fileName, StatementReader.figureMap(text), rowsJson(rows), receivedAt);
 		result.setRows(result.getRows() + rows.size());
 		return true;
 	}
@@ -488,7 +536,7 @@ public class GmailServiceImple implements IfGmailService {
 		result.setRead(1);
 		List<String> figures = new ArrayList<>();
 		boolean opened = openStatement(userId, WealthServiceConstants.STATEMENT_UPLOAD_REF + digest(pdf), fileName, WealthServiceConstants.STATEMENT_ORIGIN_UPLOAD, pdf, passwords, result, figures,
-				new AiBudget(values.get(KEY_NAME)));
+				new AiBudget(values.get(KEY_NAME)), null);
 		result.setFigures(figures);
 		if (opened && request.isKeep() && !typed.isEmpty() && row != null) {
 			keepPassword(userId, typed);
@@ -530,7 +578,7 @@ public class GmailServiceImple implements IfGmailService {
 			for (GmailClient.Attachment pdf : client.pdfAttachments(app.baseUrl(), access, statement.getMailRef())) {
 				if (pdf.name().equals(statement.getFileName())) {
 					boolean opened = openStatement(userId, statement.getMailRef(), pdf.name(), WealthServiceConstants.STATEMENT_ORIGIN_GMAIL, client.attachment(app.baseUrl(), access, statement.getMailRef(), pdf.id()),
-							passwords, result, figures, new AiBudget(values.get(KEY_NAME)));
+							passwords, result, figures, new AiBudget(values.get(KEY_NAME)), stamp(pdf));
 					if (opened && request.isKeep()) {
 						keepPassword(userId, typed);
 					}

@@ -11,6 +11,7 @@ import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wealth.bss.config.KafkaEndpoint;
@@ -105,6 +106,98 @@ public class NexusReadServiceImple implements IfNexusReadService {
 	public void evict(String name, String userId) {
 		if (userId != null) {
 			cache.remove(key(name, userId));
+			// the remembered variants of this user are found through a version: a new one leaves the old copies unread until they expire
+			try {
+				cache.put(versionKey(name, userId), String.valueOf(clock.getAsLong()), Duration.ofDays(WealthServiceConstants.NEXUS_MEMO_VERSION_DAYS));
+			} catch (RuntimeException e) {
+				LOGGER.warn("A cache version could not be moved (" + e.getClass().getSimpleName() + ")");
+			}
+		}
+	}
+
+	@Override
+	public <T> T remember(String name, String variant, Duration ttl, TypeReference<T> type, Supplier<T> loader) {
+		String userId = RequestHeaderUtil.getUserId();
+		if (userId == null) {
+			return loader.get();
+		}
+		String version = null;
+		try {
+			version = cache.get(versionKey(name, userId));
+		} catch (RuntimeException e) {
+			LOGGER.warn("A cache version could not be read (" + e.getClass().getSimpleName() + ")");
+		}
+		// the copy is written in the background: the version in the key keeps a late write from ever being read after a change
+		return memo(WealthServiceConstants.NEXUS_KEY_PREFIX + "memo-" + name + ":" + userId + ":" + (version == null ? "0" : version) + ":" + digest(variant), ttl, type, loader, true);
+	}
+
+	@Override
+	public <T> T rememberShared(String name, String variant, Duration ttl, TypeReference<T> type, Supplier<T> loader) {
+		return memo(sharedKey(name, variant), ttl, type, loader, false);
+	}
+
+	@Override
+	public void evictShared(String name, String variant) {
+		try {
+			cache.remove(sharedKey(name, variant));
+		} catch (RuntimeException e) {
+			LOGGER.warn("A shared cache entry could not be dropped (" + e.getClass().getSimpleName() + ")");
+		}
+	}
+
+	private String versionKey(String name, String userId) {
+		return WealthServiceConstants.NEXUS_KEY_PREFIX + "memo-version-" + name + ":" + userId;
+	}
+
+	private String sharedKey(String name, String variant) {
+		return WealthServiceConstants.NEXUS_KEY_PREFIX + "shared-" + name + ":" + digest(variant);
+	}
+
+	// The variant as a short fixed-length text, so a long filter never makes a long key.
+	private static String digest(String variant) {
+		try {
+			byte[] hash = java.security.MessageDigest.getInstance("SHA-256").digest((variant == null ? "" : variant).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+			StringBuilder hex = new StringBuilder();
+			for (int i = 0; i < 8; i++) {
+				hex.append(String.format("%02x", hash[i]));
+			}
+			return hex.toString();
+		} catch (java.security.NoSuchAlgorithmException e) {
+			throw new IllegalStateException(e);
+		}
+	}
+
+	// A hit is read back; a miss, or a copy that cannot be read, runs the loader and stores its answer. A cache problem never reaches the caller.
+	private <T> T memo(String key, Duration ttl, TypeReference<T> type, Supplier<T> loader, boolean background) {
+		try {
+			String json = cache.get(key);
+			if (json != null) {
+				return mapper.readValue(json, type);
+			}
+		} catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
+			LOGGER.warn("A remembered read could not be used (" + e.getClass().getSimpleName() + ")");
+		}
+		T value = loader.get();
+		if (value != null) {
+			try {
+				String json = mapper.writeValueAsString(value);
+				if (background) {
+					executor.execute(() -> store(key, json, ttl));
+				} else {
+					store(key, json, ttl);
+				}
+			} catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
+				LOGGER.warn("A read could not be remembered (" + e.getClass().getSimpleName() + ")");
+			}
+		}
+		return value;
+	}
+
+	private void store(String key, String json, Duration ttl) {
+		try {
+			cache.put(key, json, ttl);
+		} catch (RuntimeException e) {
+			LOGGER.warn("A read could not be remembered (" + e.getClass().getSimpleName() + ")");
 		}
 	}
 
