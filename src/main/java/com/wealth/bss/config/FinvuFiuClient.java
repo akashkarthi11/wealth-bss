@@ -5,9 +5,11 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.time.Duration;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -24,7 +26,10 @@ public class FinvuFiuClient {
 			@Value("${wealth.finvu.fiu-token:}") String token) {
 		this.baseUrl = baseUrl.replaceAll("/+$", "");
 		this.token = token == null ? "" : token.trim();
-		this.client = builder.build();
+		SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+		requestFactory.setConnectTimeout(Duration.ofSeconds(5));
+		requestFactory.setReadTimeout(Duration.ofSeconds(20));
+		this.client = builder.requestFactory(requestFactory).build();
 	}
 
 	public Map<String, Object> configuration() {
