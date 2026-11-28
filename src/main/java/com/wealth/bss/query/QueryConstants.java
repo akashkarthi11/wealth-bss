@@ -288,6 +288,13 @@ public final class QueryConstants {
 			+ ", ROW_NUMBER() OVER (PARTITION BY T.KIND ORDER BY SUM(T.AMOUNT) DESC, T.CATEGORY) AS RN" + SUMMARY_FROM + " GROUP BY T.CATEGORY, T.KIND) X WHERE RN <= 12 "
 			+ "ORDER BY OUTGOING DESC, INCOMING DESC, LABEL";
 
+	// per day, the latest 371 days with transactions (a year of weeks for the heatmap); the service reads them newest first
+	public static final String SUMMARY_BY_DAY = "SELECT TO_CHAR(T.OCCURRED_ON, 'YYYY-MM-DD') AS LABEL, " + SUMMARY_SUMS + SUMMARY_FROM + " GROUP BY 1 ORDER BY 1 DESC LIMIT 371";
+
+	// per category, kind and month: the service cuts these into the 12-month trend of each listed category
+	public static final String SUMMARY_BY_CATEGORY_MONTH = "SELECT T.CATEGORY AS LABEL, T.KIND AS KIND, TO_CHAR(T.OCCURRED_ON, 'YYYY-MM') AS PERIOD, " + SUMMARY_SUMS + SUMMARY_FROM
+			+ " GROUP BY 1, 2, 3 ORDER BY 3 DESC LIMIT 6000";
+
 	public static final String SUMMARY_BY_KIND = "SELECT T.KIND AS LABEL, T.KIND AS KIND, " + SUMMARY_SUMS + SUMMARY_FROM + " GROUP BY T.KIND ORDER BY OUTGOING DESC, INCOMING DESC";
 
 	public static final String SUMMARY_BY_ACCOUNT = "SELECT COALESCE(NULLIF(TRIM(A.ACCOUNT_NAME || ' ' || COALESCE(A.MASKED_IDENTIFIER, '')), ''), NULLIF(T.ACCOUNT, ''), 'Unassigned') AS LABEL, "

@@ -117,6 +117,34 @@ class TransactionsServiceImpleTest {
 				org.mockito.ArgumentMatchers.eq("total"));
 	}
 
+	private static com.wealth.common.model.dto.transaction.TransactionSummaryItemDto cell(String label, String kind, String period, String in, String out) {
+		com.wealth.common.model.dto.transaction.TransactionSummaryItemDto cell = item(label, in, out, 1);
+		cell.setKind(kind);
+		cell.setPeriod(period);
+		return cell;
+	}
+
+	@Test
+	void eachCategoryGetsItsAmountInEveryMonthOfTheChartAndTheDailyTotalsAreGiven() {
+		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("total"))).thenReturn(new ArrayList<>(List.of(item("total", "10000", "500", 3))));
+		com.wealth.common.model.dto.transaction.TransactionSummaryItemDto food = item("Food", "0", "500", 2);
+		food.setKind("expense");
+		com.wealth.common.model.dto.transaction.TransactionSummaryItemDto salary = item("Salary", "10000", "0", 1);
+		salary.setKind("income");
+		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("category"))).thenReturn(new ArrayList<>(List.of(food, salary)));
+		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("month"))).thenReturn(new ArrayList<>(List.of(item("2026-11", "0", "200", 1), item("2026-10", "10000", "300", 2))));
+		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("categorymonth"))).thenReturn(new ArrayList<>(List.of(cell("Food", "expense", "2026-11", "0", "200"),
+				cell("Food", "expense", "2026-10", "0", "300"), cell("Salary", "income", "2026-10", "10000", "0"))));
+		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("day"))).thenReturn(new ArrayList<>(List.of(item("2026-11-03", "0", "200", 1), item("2026-10-05", "10000", "0", 1))));
+
+		var summary = service.summary(null);
+
+		assertEquals(List.of(new BigDecimal("300.00"), new BigDecimal("200.00")), summary.getByCategory().get(0).getTrend(), "Food: October then November");
+		assertEquals(List.of(new BigDecimal("10000.00"), new BigDecimal("0.00")), summary.getByCategory().get(1).getTrend(), "an income category counts what came in");
+		assertEquals(List.of("2026-11-03", "2026-10-05"), summary.getByDay().stream().map(i -> i.getLabel()).toList());
+	}
+
+
 	@Test
 	void anEmptySelectionGivesZerosAndABadFilterIsRefused() {
 		when(dao.summaryBy(any(), any())).thenReturn(new ArrayList<>());

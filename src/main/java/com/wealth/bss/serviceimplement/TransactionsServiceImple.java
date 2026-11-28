@@ -74,14 +74,33 @@ public class TransactionsServiceImple implements IfTransactionsService {
 			result.setCount(total.get(0).getCount());
 		}
 		result.setNet(result.getIncoming().subtract(result.getOutgoing()));
-		result.setByCategory(round(transactionDao.summaryBy(page, "category")));
 		result.setByAccount(round(transactionDao.summaryBy(page, "account")));
 		result.setByKind(round(transactionDao.summaryBy(page, "kind")));
+		result.setByDay(round(transactionDao.summaryBy(page, "day")));
 		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> months = new java.util.ArrayList<>(round(transactionDao.summaryBy(page, "month")));
 		java.util.Collections.reverse(months);
 		result.setByMonth(months);
+		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> categories = round(transactionDao.summaryBy(page, "category"));
+		addTrend(categories, months, transactionDao.summaryBy(page, "categorymonth"));
+		result.setByCategory(categories);
 		LOGGER.info(WealthServiceConstants.EXITING + methodName + " | count=" + result.getCount());
 		return result;
+	}
+
+	// Each listed category gets its amount in every month of the chart (oldest first): income for an income category, money out otherwise; 0 where it had none.
+	private static void addTrend(List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> categories, List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> months,
+			List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> cells) {
+		java.util.Map<String, java.math.BigDecimal> by = new java.util.HashMap<>();
+		for (com.wealth.common.model.dto.transaction.TransactionSummaryItemDto cell : cells) {
+			by.put(cell.getLabel() + "\u001f" + cell.getKind() + "\u001f" + cell.getPeriod(), "income".equals(cell.getKind()) ? cell.getIncoming() : cell.getOutgoing());
+		}
+		for (com.wealth.common.model.dto.transaction.TransactionSummaryItemDto category : categories) {
+			List<java.math.BigDecimal> trend = new java.util.ArrayList<>();
+			for (com.wealth.common.model.dto.transaction.TransactionSummaryItemDto month : months) {
+				trend.add(by.getOrDefault(category.getLabel() + "\u001f" + category.getKind() + "\u001f" + month.getLabel(), java.math.BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
+			}
+			category.setTrend(trend);
+		}
 	}
 
 	private static List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> round(List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> items) {
