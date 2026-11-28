@@ -115,6 +115,7 @@ public class WealthTransactionDaoImple extends WealthBaseDaoImple implements IfW
 		String query = switch (dimension) {
 		case "category" -> QueryConstants.SUMMARY_BY_CATEGORY;
 		case "account" -> QueryConstants.SUMMARY_BY_ACCOUNT;
+		case "kind" -> QueryConstants.SUMMARY_BY_KIND;
 		case "month" -> QueryConstants.SUMMARY_BY_MONTH;
 		default -> QueryConstants.SUMMARY_TOTAL;
 		};

@@ -96,6 +96,7 @@ class TransactionsServiceImpleTest {
 		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("total"))).thenReturn(new ArrayList<>(List.of(item("total", "10000", "1200.5", 4))));
 		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("category"))).thenReturn(new ArrayList<>(List.of(item("Travel", "0", "700", 1), item("Food", "0", "500.5", 2))));
 		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("account"))).thenReturn(new ArrayList<>(List.of(item("Savings xx3333", "10000", "1000", 3))));
+		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("kind"))).thenReturn(new ArrayList<>(List.of(item("expense", "0", "1200.5", 3), item("income", "10000", "0", 1))));
 		when(dao.summaryBy(any(), org.mockito.ArgumentMatchers.eq("month"))).thenReturn(new ArrayList<>(List.of(item("2026-11", "0", "900", 2), item("2026-10", "10000", "300", 2))));
 		TransactionPageRequestDto request = new TransactionPageRequestDto();
 		request.setKind("expense");
@@ -109,6 +110,8 @@ class TransactionsServiceImpleTest {
 		assertEquals(new BigDecimal("8799.50"), summary.getNet());
 		assertEquals(4, summary.getCount());
 		assertEquals(List.of("Travel", "Food"), summary.getByCategory().stream().map(i -> i.getLabel()).toList());
+		assertEquals(List.of("expense", "income"), summary.getByKind().stream().map(i -> i.getLabel()).toList());
+		assertEquals(new BigDecimal("1200.50"), summary.getByKind().get(0).getOutgoing());
 		assertEquals(List.of("2026-10", "2026-11"), summary.getByMonth().stream().map(i -> i.getLabel()).toList(), "months are oldest first");
 		verify(dao).summaryBy(argThat(page -> USER.equals(page.getUserId()) && "expense".equals(page.getKind()) && "2026-10-01".equals(page.getFromDay()) && "swiggy".equals(page.getSearchText())),
 				org.mockito.ArgumentMatchers.eq("total"));

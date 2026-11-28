@@ -76,6 +76,7 @@ public class TransactionsServiceImple implements IfTransactionsService {
 		result.setNet(result.getIncoming().subtract(result.getOutgoing()));
 		result.setByCategory(round(transactionDao.summaryBy(page, "category")));
 		result.setByAccount(round(transactionDao.summaryBy(page, "account")));
+		result.setByKind(round(transactionDao.summaryBy(page, "kind")));
 		List<com.wealth.common.model.dto.transaction.TransactionSummaryItemDto> months = new java.util.ArrayList<>(round(transactionDao.summaryBy(page, "month")));
 		java.util.Collections.reverse(months);
 		result.setByMonth(months);
