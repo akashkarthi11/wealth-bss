@@ -467,6 +467,21 @@ class ApiUsageServiceImpleTest {
 	}
 
 	@Test
+	void theUserListHoldsEveryUserAndAUserWithNoCallsShowsZero() {
+		RequestHeaderUtil.setUserId(ME);
+		when(dao.findUsers()).thenReturn(List.of(person(ME, "me@example.com"), person(OTHER, "other@example.com")));
+		doReturn(Map.of("GET /x|" + ME + "|calls", "3", "GET /x|" + ME + "|ok", "3")).when(hash).entries("wealth:usage:20261127:bff");
+
+		ApiUsageDto usage = service.list(forUser("me"));
+
+		assertEquals(2, usage.getUsers().size());
+		assertEquals(3, usage.getUsers().get(0).getCalls());
+		assertTrue(usage.getUsers().get(0).isMe());
+		assertEquals("other@example.com", usage.getUsers().get(1).getEmail());
+		assertEquals(0, usage.getUsers().get(1).getCalls());
+	}
+
+	@Test
 	void theScreenForAllUsersAddsEveryonesCountsAndABadUserIsRefused() {
 		doReturn(Map.of("GET /x|" + ME + "|calls", "3", "GET /x|" + OTHER + "|calls", "4")).when(hash).entries("wealth:usage:20261127:bff");
 

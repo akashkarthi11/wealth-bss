@@ -501,15 +501,20 @@ public class ApiUsageServiceImple implements IfApiUsageService, ApiUsageRecorder
 		return asked.toLowerCase();
 	}
 
-	// Everyone with website calls in the period, most first, named from the users table.
+	// Every user, most calls first (a user with no calls in the period shows 0), plus any counted id no longer in the users table.
 	private List<ApiUsageUserDto> usersOf(Map<String, Long> userCalls) {
 		Map<String, String> emails = new LinkedHashMap<>();
 		for (WealthApiUsageEntity user : dao.findUsers()) {
 			emails.put(user.getUserId().toLowerCase(), user.getEmail());
 		}
 		String caller = userOf(RequestHeaderUtil.getUserId());
+		Map<String, Long> calls = new LinkedHashMap<>();
+		for (String id : emails.keySet()) {
+			calls.put(id, 0L);
+		}
+		calls.putAll(userCalls);
 		List<ApiUsageUserDto> users = new ArrayList<>();
-		for (Map.Entry<String, Long> entry : userCalls.entrySet()) {
+		for (Map.Entry<String, Long> entry : calls.entrySet()) {
 			ApiUsageUserDto user = new ApiUsageUserDto();
 			user.setUserId(entry.getKey());
 			user.setEmail(emails.getOrDefault(entry.getKey(), ""));
