@@ -612,6 +612,7 @@ public class GmailServiceImple implements IfGmailService {
 			GmailStatementRowDto dto = new GmailStatementRowDto();
 			dto.setId(row.getId());
 			dto.setSource(row.getSource());
+			dto.setReceivedAt(row.getReceivedAt());
 			dto.setReadAt(row.getReadAt());
 			dto.setFigures(readJson(row.getFigures()));
 			dto.setRowCount(row.getRowCount());

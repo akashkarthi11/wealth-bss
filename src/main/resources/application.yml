@@ -35,9 +35,6 @@ wealth:
     pool-size: ${WEALTH_DB_POOL_SIZE:5}
   session:
     secret: ${WEALTH_SESSION_SECRET:}
-  finvu:
-    fiu-base-url: ${WEALTH_FINVU_FIU_BASE_URL:https://finsense.finvu.in/ConnectHub/FIU/API/V1}
-    fiu-token: ${WEALTH_FINVU_FIU_TOKEN:}
   access:
     key: ${WEALTH_ACCESS_KEY:}
   nexus-cache:
