@@ -369,6 +369,14 @@ public final class WealthServiceConstants {
 	public static final int PROVIDER_KEY_MAX_LENGTH = 500;
 	public static final int KEY_HINT_LENGTH = 4;
 
+	public static final String FINVU_AA_BASE = "/wealth-service/api/v1/aa/finvu";
+	public static final String FINVU_AA_CONFIG = "/config";
+	public static final String FINVU_AA_CONSENT_REQUEST = "/consent/request";
+	public static final String FINVU_AA_CONSENT_STATUS = "/consent/status";
+	public static final String FINVU_AA_FI_REQUEST = "/fi/request";
+	public static final String FINVU_AA_FI_STATUS = "/fi/status";
+	public static final String FINVU_AA_FI_FETCH = "/fi/fetch";
+
 	public static final String MENUS_BASE = "/wealth-service/api/v1/menus";
 	public static final String MENUS_LIST = "/list";
 
