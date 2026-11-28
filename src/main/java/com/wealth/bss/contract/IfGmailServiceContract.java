@@ -18,6 +18,8 @@ import com.wealth.common.generic.ApiResponse;
 import com.wealth.common.generic.KarthiException;
 import com.wealth.common.model.dto.admin.GmailAppSaveRequestDto;
 import com.wealth.common.model.dto.admin.GmailConnectRequestDto;
+import com.wealth.common.model.dto.admin.GmailSyncRequestDto;
+import com.wealth.common.model.dto.admin.GmailSyncStatusDto;
 import com.wealth.common.model.dto.admin.GmailConnectUrlDto;
 import com.wealth.common.model.dto.admin.GmailFetchResultDto;
 import com.wealth.common.model.dto.admin.GmailFinishRequestDto;
@@ -80,6 +82,12 @@ public interface IfGmailServiceContract {
 
 	@PostMapping(WealthServiceConstants.GMAIL_FETCH)
 	ResponseEntity<ApiResponse<GmailFetchResultDto, Void>> fetch() throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.GMAIL_SYNC_START)
+	ResponseEntity<ApiResponse<GmailSyncStatusDto, Void>> syncStart(@RequestBody GmailSyncRequestDto request) throws KarthiException;
+
+	@PostMapping(WealthServiceConstants.GMAIL_SYNC_STATUS)
+	ResponseEntity<ApiResponse<GmailSyncStatusDto, Void>> syncStatus() throws KarthiException;
 
 	@PostMapping(WealthServiceConstants.GMAIL_PENDING)
 	ResponseEntity<ApiResponse<List<GmailPendingItemDto>, Void>> pending() throws KarthiException;

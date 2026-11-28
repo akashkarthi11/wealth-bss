@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.wealth.bss.common.model.dao.IfWealthUserConnectionDao;
 import com.wealth.bss.common.model.entity.WealthUserConnectionEntity;
+import com.wealth.bss.common.model.entity.WealthUserSyncEntity;
 import com.wealth.bss.constants.WealthServiceConstants;
 import com.wealth.bss.query.QueryConstants;
 import com.wealth.common.logger.KarthiLogger;
@@ -35,6 +36,33 @@ public class WealthUserConnectionDaoImple extends WealthBaseDaoImple implements 
 	@Override
 	public List<WealthUserConnectionEntity> findByProvider(String provider) {
 		return jdbcTemplate.query(QueryConstants.FIND_USER_CONNECTIONS_BY_PROVIDER, new BeanPropertyRowMapper<>(WealthUserConnectionEntity.class), provider);
+	}
+
+	@Override
+	@Transactional
+	public boolean claimSync(String userId, String provider, String kind, int staleSeconds) {
+		return jdbcTemplate.update(QueryConstants.CLAIM_GMAIL_SYNC, kind, userId, provider, staleSeconds) > 0;
+	}
+
+	@Override
+	public void setSyncStage(String userId, String provider, String stage) {
+		jdbcTemplate.update(QueryConstants.SET_GMAIL_SYNC_STAGE, stage, userId, provider);
+	}
+
+	@Override
+	public void finishSync(String userId, String provider, String stage, String note, String resultJson) {
+		jdbcTemplate.update(QueryConstants.FINISH_GMAIL_SYNC, stage, note, resultJson, userId, provider);
+	}
+
+	@Override
+	public void touchSync(String userId, String provider) {
+		jdbcTemplate.update(QueryConstants.TOUCH_GMAIL_SYNC, userId, provider);
+	}
+
+	@Override
+	public WealthUserSyncEntity findSync(String userId, String provider, int staleSeconds) {
+		List<WealthUserSyncEntity> rows = jdbcTemplate.query(QueryConstants.FIND_GMAIL_SYNC, new BeanPropertyRowMapper<>(WealthUserSyncEntity.class), staleSeconds, userId, provider);
+		return rows.isEmpty() ? null : rows.get(0);
 	}
 
 	@Override

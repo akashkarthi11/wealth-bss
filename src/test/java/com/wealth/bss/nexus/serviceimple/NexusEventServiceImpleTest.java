@@ -100,6 +100,26 @@ class NexusEventServiceImpleTest {
 	}
 
 	@Test
+	void aGmailReadRequestGoesOutWithItsOwnEventHeaderAndComesBackToItsOwnHandler() throws Exception {
+		consumerConnected();
+		AtomicReference<String> gmail = new AtomicReference<>();
+		AtomicReference<String> refresh = new AtomicReference<>();
+		events.onGmailSync(gmail::set);
+		events.onRefresh(refresh::set);
+
+		assertTrue(events.publishGmailSync("u1", "{\"userId\":\"u1\",\"kind\":\"all\"}"));
+		var sent = producer.history().get(0);
+		assertEquals("u1", sent.key());
+		assertEquals("gmail.sync", new String(sent.headers().lastHeader("eventType").value(), StandardCharsets.UTF_8));
+
+		ConsumerRecord<String, String> record = new ConsumerRecord<>("wealth.money-events", 0, 0, "u1", sent.value());
+		record.headers().add("eventType", "gmail.sync".getBytes(StandardCharsets.UTF_8));
+		events.handle(record);
+		assertEquals(sent.value(), gmail.get());
+		assertEquals(null, refresh.get(), "a Gmail request never reaches the refresh handler");
+	}
+
+	@Test
 	void onlyRefreshMessagesAreHandledAndAFailingHandlerDoesNotStopTheConsumer() {
 		AtomicReference<String> got = new AtomicReference<>();
 		events.onRefresh(got::set);

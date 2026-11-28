@@ -29,6 +29,9 @@ import com.wealth.common.model.dto.admin.GmailStatementResultDto;
 import com.wealth.common.model.dto.admin.GmailStatementRowDto;
 import com.wealth.common.model.dto.admin.GmailStatementSettingsRequestDto;
 import com.wealth.common.model.dto.admin.GmailStatusDto;
+import com.wealth.common.model.dto.admin.GmailSyncRequestDto;
+import com.wealth.common.model.dto.admin.GmailSyncStatusDto;
+import com.wealth.bss.serviceinterface.IfGmailSyncService;
 
 @RestController
 public class GmailServiceController implements IfGmailServiceContract {
@@ -36,10 +39,12 @@ public class GmailServiceController implements IfGmailServiceContract {
 	private static final KarthiLogger LOGGER = new KarthiLogger(GmailServiceController.class);
 
 	private final IfGmailService gmailService;
+	private final IfGmailSyncService syncService;
 	private final ApiResponseTemplate responseTemplate;
 
-	public GmailServiceController(IfGmailService gmailService, ApiResponseTemplate responseTemplate) {
+	public GmailServiceController(IfGmailService gmailService, IfGmailSyncService syncService, ApiResponseTemplate responseTemplate) {
 		this.gmailService = gmailService;
+		this.syncService = syncService;
 		this.responseTemplate = responseTemplate;
 	}
 
@@ -47,6 +52,18 @@ public class GmailServiceController implements IfGmailServiceContract {
 	public ResponseEntity<ApiResponse<GmailStatusDto, Void>> status() throws KarthiException {
 		LOGGER.info("Entering status");
 		return responseTemplate.apires(gmailService.status(), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<GmailSyncStatusDto, Void>> syncStart(GmailSyncRequestDto request) throws KarthiException {
+		LOGGER.info("Entering syncStart");
+		return responseTemplate.apires(syncService.start(request), BaseError.Success);
+	}
+
+	@Override
+	public ResponseEntity<ApiResponse<GmailSyncStatusDto, Void>> syncStatus() throws KarthiException {
+		LOGGER.info("Entering syncStatus");
+		return responseTemplate.apires(syncService.status(), BaseError.Success);
 	}
 
 	@Override

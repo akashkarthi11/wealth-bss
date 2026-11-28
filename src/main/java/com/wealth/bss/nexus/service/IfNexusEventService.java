@@ -11,4 +11,10 @@ public interface IfNexusEventService {
 
 	// The handler the consumer calls with the payload of each refresh request it reads.
 	void onRefresh(Consumer<String> handler);
+
+	// A request to read one user's Gmail in the background (header eventType = gmail.sync, message key = the user id). Same rule as publishRefresh: false means nothing was sent.
+	boolean publishGmailSync(String userId, String payload);
+
+	// The handler the consumer calls with the payload of each Gmail read request it reads.
+	void onGmailSync(Consumer<String> handler);
 }

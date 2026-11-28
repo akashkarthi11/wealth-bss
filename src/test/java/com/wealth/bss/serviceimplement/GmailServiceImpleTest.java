@@ -133,6 +133,23 @@ class GmailServiceImpleTest {
 				return userRow;
 			}
 
+			public boolean claimSync(String userId, String provider, String kind, int staleSeconds) {
+				return false;
+			}
+
+			public void setSyncStage(String userId, String provider, String stage) {
+			}
+
+			public void finishSync(String userId, String provider, String stage, String note, String resultJson) {
+			}
+
+			public void touchSync(String userId, String provider) {
+			}
+
+			public com.wealth.bss.common.model.entity.WealthUserSyncEntity findSync(String userId, String provider, int staleSeconds) {
+				return null;
+			}
+
 			public boolean delete(String userId, String provider) {
 				boolean had = userRow != null;
 				userRow = null;

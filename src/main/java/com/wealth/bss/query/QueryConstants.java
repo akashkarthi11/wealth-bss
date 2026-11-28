@@ -199,6 +199,20 @@ public final class QueryConstants {
 	public static final String UPDATE_USER_CONNECTION_CHECK = "UPDATE WEALTH_USER_CONNECTIONS SET LAST_STATUS = ?, LAST_CHECKED_AT = NOW(), UPDT_DT = NOW() "
 			+ "WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ? RETURNING " + USER_CONNECTION_COLUMNS;
 
+	// the background Gmail read (0078): one read per user at a time; a read that has not moved for GMAIL_SYNC_STALE_SECONDS may be replaced
+	public static final String CLAIM_GMAIL_SYNC = "UPDATE WEALTH_USER_CONNECTIONS SET SYNC_KIND = ?, SYNC_STAGE = 'queued', SYNC_NOTE = NULL, SYNC_STARTED_AT = NOW(), SYNC_UPDATED_AT = NOW() "
+			+ "WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ? AND (SYNC_STAGE IS NULL OR SYNC_STAGE IN ('done', 'failed') OR SYNC_UPDATED_AT < NOW() - (? * INTERVAL '1 second'))";
+
+	public static final String SET_GMAIL_SYNC_STAGE = "UPDATE WEALTH_USER_CONNECTIONS SET SYNC_STAGE = ?, SYNC_UPDATED_AT = NOW() WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ?";
+
+	public static final String FINISH_GMAIL_SYNC = "UPDATE WEALTH_USER_CONNECTIONS SET SYNC_STAGE = ?, SYNC_NOTE = ?, SYNC_RESULT = ?, SYNC_UPDATED_AT = NOW() WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ?";
+
+	public static final String TOUCH_GMAIL_SYNC = "UPDATE WEALTH_USER_CONNECTIONS SET SYNC_UPDATED_AT = NOW() WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ? "
+			+ "AND SYNC_STAGE IN ('queued', 'reading_alerts', 'reading_statements')";
+
+	public static final String FIND_GMAIL_SYNC = "SELECT SYNC_KIND, SYNC_STAGE, SYNC_NOTE, SYNC_RESULT, SYNC_STARTED_AT, SYNC_UPDATED_AT, "
+			+ "(SYNC_UPDATED_AT IS NOT NULL AND SYNC_UPDATED_AT < NOW() - (? * INTERVAL '1 second')) AS STALE FROM WEALTH_USER_CONNECTIONS WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ?";
+
 	public static final String DELETE_USER_CONNECTION = "DELETE FROM WEALTH_USER_CONNECTIONS WHERE USER_ID = CAST(? AS UUID) AND PROVIDER = ?";
 
 	// changes only the encrypted value (the statement passwords); the last check result stays

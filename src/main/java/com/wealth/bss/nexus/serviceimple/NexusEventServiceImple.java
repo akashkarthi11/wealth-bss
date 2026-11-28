@@ -42,6 +42,8 @@ public class NexusEventServiceImple implements IfNexusEventService {
 	private final Function<Map<String, Object>, org.apache.kafka.clients.consumer.Consumer<String, String>> consumerFactory;
 	private volatile Consumer<String> handler = payload -> {
 	};
+	private volatile Consumer<String> gmailHandler = payload -> {
+	};
 	private volatile Thread thread;
 	private volatile boolean running;
 	private volatile long connectedAt;
@@ -77,21 +79,35 @@ public class NexusEventServiceImple implements IfNexusEventService {
 	}
 
 	@Override
+	public void onGmailSync(Consumer<String> handler) {
+		this.gmailHandler = handler;
+	}
+
+	@Override
 	public boolean publishRefresh(String cacheKey, String payload) {
+		return publish(cacheKey, payload, WealthServiceConstants.KAFKA_EVENT_CACHE_REFRESH);
+	}
+
+	@Override
+	public boolean publishGmailSync(String userId, String payload) {
+		return publish(userId, payload, WealthServiceConstants.KAFKA_EVENT_GMAIL_SYNC);
+	}
+
+	private boolean publish(String key, String payload, String eventType) {
 		if (!usable() || clock.getAsLong() - connectedAt > WealthServiceConstants.KAFKA_CONSUMER_ALIVE_MILLIS) {
 			return false;
 		}
 		try {
 			Producer<String, String> sender = producer();
-			ProducerRecord<String, String> record = new ProducerRecord<>(WealthServiceConstants.KAFKA_TOPIC_MONEY, cacheKey, payload);
-			record.headers().add(WealthServiceConstants.KAFKA_HEADER_EVENT, WealthServiceConstants.KAFKA_EVENT_CACHE_REFRESH.getBytes(StandardCharsets.UTF_8));
+			ProducerRecord<String, String> record = new ProducerRecord<>(WealthServiceConstants.KAFKA_TOPIC_MONEY, key, payload);
+			record.headers().add(WealthServiceConstants.KAFKA_HEADER_EVENT, eventType.getBytes(StandardCharsets.UTF_8));
 			sender.send(record).get(WealthServiceConstants.KAFKA_SEND_TIMEOUT_MS, TimeUnit.MILLISECONDS);
 			return true;
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 			return false;
 		} catch (Exception e) {
-			LOGGER.warn("Kafka did not take the refresh request (" + e.getClass().getSimpleName() + "); the BSS refreshes by itself");
+			LOGGER.warn("Kafka did not take the " + eventType + " request (" + e.getClass().getSimpleName() + "); the BSS does the work itself");
 			return false;
 		}
 	}
@@ -162,16 +178,21 @@ public class NexusEventServiceImple implements IfNexusEventService {
 		close(consumer);
 	}
 
-	// Only refresh requests are handled; a failing handler never stops the consumer.
+	// Only refresh and Gmail read requests are handled; a failing handler never stops the consumer.
 	void handle(ConsumerRecord<String, String> record) {
 		Header header = record.headers().lastHeader(WealthServiceConstants.KAFKA_HEADER_EVENT);
-		if (header == null || !WealthServiceConstants.KAFKA_EVENT_CACHE_REFRESH.equals(new String(header.value(), StandardCharsets.UTF_8))) {
+		if (header == null) {
+			return;
+		}
+		String event = new String(header.value(), StandardCharsets.UTF_8);
+		Consumer<String> target = WealthServiceConstants.KAFKA_EVENT_CACHE_REFRESH.equals(event) ? handler : WealthServiceConstants.KAFKA_EVENT_GMAIL_SYNC.equals(event) ? gmailHandler : null;
+		if (target == null) {
 			return;
 		}
 		try {
-			handler.accept(record.value());
+			target.accept(record.value());
 		} catch (RuntimeException e) {
-			LOGGER.warn("A refresh request could not be handled (" + e.getClass().getSimpleName() + ")");
+			LOGGER.warn("A " + event + " request could not be handled (" + e.getClass().getSimpleName() + ")");
 		}
 	}
 

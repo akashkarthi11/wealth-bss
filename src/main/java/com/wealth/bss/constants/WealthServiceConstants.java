@@ -289,6 +289,21 @@ public final class WealthServiceConstants {
 	public static final int GMAIL_MAILS_MIN = 1;
 	public static final int GMAIL_MAILS_MAX = 100;
 	public static final String GMAIL_FETCH = "/fetch";
+	public static final String GMAIL_SYNC_START = "/sync-start";
+	public static final String GMAIL_SYNC_STATUS = "/sync-status";
+	// The background read: its kinds and stages (they are the values of the check constraints of 0078), and how long it may stay silent before it counts as stopped.
+	public static final String SYNC_KIND_ALERTS = "alerts";
+	public static final String SYNC_KIND_STATEMENTS = "statements";
+	public static final String SYNC_KIND_ALL = "all";
+	public static final String SYNC_QUEUED = "queued";
+	public static final String SYNC_READING_ALERTS = "reading_alerts";
+	public static final String SYNC_READING_STATEMENTS = "reading_statements";
+	public static final String SYNC_DONE = "done";
+	public static final String SYNC_FAILED = "failed";
+	public static final String SYNC_IDLE = "idle";
+	public static final int SYNC_STALE_SECONDS = 300;
+	public static final int SYNC_HEARTBEAT_SECONDS = 30;
+	public static final int SYNC_WORKERS = 2;
 	public static final String GMAIL_PENDING = "/pending";
 	public static final String GMAIL_REVIEW = "/review";
 	// Only the transaction alerts are searched (never OTP or service mails), from the last {days} days (set in Connections > Common), at most 100 a read. A mail is read once: its id is the transaction's external_ref.
@@ -332,9 +347,17 @@ public final class WealthServiceConstants {
 	public static final String NEXUS_READ_ACCOUNTS = "accounts-overview";
 	public static final String NEXUS_READ_INVESTMENTS = "investments";
 	public static final String NEXUS_READ_PEOPLE = "people";
+	// Reads kept for a short while (nexus remember): the account types, a role's menus, the dashboard summary.
+	public static final String NEXUS_READ_SUBTYPES = "account-subtypes";
+	public static final String NEXUS_READ_NAV = "nav";
+	public static final int NEXUS_MEMO_SUBTYPES_SECONDS = 3600;
+	public static final int NEXUS_MEMO_NAV_SECONDS = 120;
+	public static final int NEXUS_MEMO_SUMMARY_SECONDS = 300;
+	public static final int NEXUS_MEMO_VERSION_DAYS = 1;
 	public static final String KAFKA_TOPIC_MONEY = "wealth.money-events";
 	public static final String KAFKA_HEADER_EVENT = "eventType";
 	public static final String KAFKA_EVENT_CACHE_REFRESH = "cache.refresh";
+	public static final String KAFKA_EVENT_GMAIL_SYNC = "gmail.sync";
 	public static final String KAFKA_GROUP_NEXUS = "wealth-nexus";
 	public static final int KAFKA_SEND_TIMEOUT_MS = 3000;
 	public static final long KAFKA_POLL_MILLIS = 1000;
